@@ -1,0 +1,48 @@
+name: Automerge aggiornamenti
+
+# Le PR di aggiornamento (Dependabot e "Security & Updates") vengono unite
+# automaticamente SOLO se TUTTI i check sono verdi: build APK, verifica,
+# SAST, CodeQL, secret scanning, dependency review.
+# Per Dependabot la major resta manuale.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Merge se verde
+    if: >
+      github.event.pull_request.user.login == 'dependabot[bot]' ||
+      startsWith(github.event.pull_request.head.ref, 'chore/security-updates')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attendi i check obbligatori
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-regexp: '(CI / Build \+ verifica APK|Actionlint.*|SAST.*|CodeQL.*|Secret Scanning.*|Dependency Review.*|Vulnerability Scan.*)'
+          wait-interval: 20
+          allowed-conclusions: success,skipped,neutral
+          running-workflow-name: 'Automerge aggiornamenti'
+
+      - name: Merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # niente major automatiche per Dependabot
+          if echo "${{ github.event.pull_request.title }}" | grep -qiE 'bump .* from [0-9]+ to [0-9]+$|bump .* from v?[0-9]+ to v?[0-9]+$'; then
+            FROM=$(echo "${{ github.event.pull_request.title }}" | sed -n 's/.*from v\?\([0-9]*\).*/\1/p')
+            TO=$(echo "${{ github.event.pull_request.title }}" | sed -n 's/.*to v\?\([0-9]*\).*/\1/p')
+            if [ -n "$FROM" ] && [ -n "$TO" ] && [ "$FROM" != "$TO" ]; then
+              echo "salto: aggiornamento major ($FROM -> $TO) da verificare a mano"
+              exit 0
+            fi
+          fi
+          gh pr merge "$PR" --squash --delete-branch
