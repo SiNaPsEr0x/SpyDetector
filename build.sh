@@ -78,15 +78,38 @@ EOF
 rm -f "$APP/java/it/spydetector/app/BuildConfig.java" 2>/dev/null || true
 
 find "$APP/java" "$BUILD/gen" -name '*.java' > "$BUILD/sources.txt"
+
+# Compilatore: javac se disponibile (lo usano la CI e CodeQL, che traccia le
+# chiamate a javac), altrimenti ECJ (toolchain portabile, nessun JDK completo).
+JAVAC="${SPD_JAVAC:-}"
+if [ -z "$JAVAC" ]; then
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/javac" ]; then
+    JAVAC="$JAVA_HOME/bin/javac"
+  elif command -v javac >/dev/null 2>&1; then
+    JAVAC="javac"
+  fi
+fi
+
 set +e
-"$JAVA" -jar "$ECJ_JAR" \
-  -source 1.8 -target 1.8 -nowarn -proc:none \
-  -bootclasspath "$ANDROID_JAR" \
-  -d "$BUILD/classes" \
-  @"$BUILD/sources.txt" > "$BUILD/ecj.log" 2>&1
-ECJ_RC=$?
+if [ -n "$JAVAC" ]; then
+  echo "    compilatore: $JAVAC"
+  "$JAVAC" -encoding UTF-8 -nowarn -proc:none \
+    -source 8 -target 8 \
+    -classpath "$ANDROID_JAR" \
+    -d "$BUILD/classes" \
+    @"$BUILD/sources.txt" > "$BUILD/ecj.log" 2>&1
+  ECJ_RC=$?
+else
+  echo "    compilatore: ecj (portabile)"
+  "$JAVA" -jar "$ECJ_JAR" \
+    -source 1.8 -target 1.8 -nowarn -proc:none \
+    -bootclasspath "$ANDROID_JAR" \
+    -d "$BUILD/classes" \
+    @"$BUILD/sources.txt" > "$BUILD/ecj.log" 2>&1
+  ECJ_RC=$?
+fi
 set -e
-grep -E 'ERROR in|problems' "$BUILD/ecj.log" | head -40 || true
+grep -E 'ERROR in|error:|problems' "$BUILD/ecj.log" | head -40 || true
 
 if [ "$ECJ_RC" -ne 0 ] || ! find "$BUILD/classes" -name '*.class' | grep -q .; then
   echo "ERRORE: compilazione Java fallita (log: build/ecj.log)"; exit 1
