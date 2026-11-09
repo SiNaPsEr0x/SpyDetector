@@ -20,19 +20,22 @@ git commit -m "release: v$VERSION" || echo "(nessuna modifica da committare)"
 git push origin HEAD
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$BRANCH" != "main" ]; then
+if [ "$BRANCH" = "main" ]; then
+  # la push su main ha gia' avviato la workflow "Release" (trigger push su main)
   echo
-  echo "ATTENZIONE: sei su '$BRANCH'. La release verra' costruita da questo branch,"
-  echo "ma la workflow 'Release' deve esistere su main per poter essere avviata."
-fi
-
-if command -v gh >/dev/null 2>&1; then
-  gh workflow run release.yml --ref "$BRANCH" -f version="$VERSION"
+  echo "Push su main completata: la workflow 'Release' si sta eseguendo."
+  echo "Segui con:"
+  echo "  gh run list --workflow release.yml --limit 1"
+  echo "  gh run watch"
+elif command -v gh >/dev/null 2>&1; then
+  echo
+  echo "ATTENZIONE: sei su '$BRANCH'. Avvio manuale su main:"
+  gh workflow run release.yml --ref main -f version="$VERSION"
   sleep 3
   gh run list --workflow release.yml --limit 1
   echo
   echo "Release v$VERSION avviata su GitHub Actions. Segui con:"
   echo "  gh run watch"
 else
-  echo "gh non disponibile: avvia a mano la workflow 'Release' da GitHub con version=$VERSION"
+  echo "gh non disponibile: avvia a mano la workflow 'Release' su main con version=$VERSION"
 fi

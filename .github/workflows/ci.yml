@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # su main il build+release è gestito da release.yml (ogni push su main
+  # rifa l'APK); qui si costruisce solo per le branch di lavoro e le PR
   push:
-    branches: [main, 'arena/**']
+    branches: ['arena/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
