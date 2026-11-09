@@ -110,6 +110,11 @@ public class MainActivity extends Activity implements Engine.Listener {
         TextView tag = Ui.label(this, getString(R.string.tagline));
         tag.setPadding(0, Ui.dp(this, 6), 0, 0);
         titleBox.addView(tag);
+
+        // credito creatore: piccolo e discreto, sotto la tagline
+        TextView credit = Ui.text(this, getString(R.string.credit), 9f, Ui.DIM, Ui.SANS);
+        credit.setPadding(0, Ui.dp(this, 2), 0, 0);
+        titleBox.addView(credit);
         head.addView(titleBox, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 

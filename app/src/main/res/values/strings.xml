@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">SpyDetector</string>
     <string name="tagline">DEVICE SECURITY SCANNER // ON-DEVICE</string>
+    <string name="credit">by Rocco aka SiNaPsE</string>
 </resources>
