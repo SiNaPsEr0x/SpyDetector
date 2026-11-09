@@ -18,11 +18,23 @@ import java.util.List;
 public class SystemIntegrityCheck implements Check {
 
     private static final String[] SU_PATHS = {
-            "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
-            "/data/local/su", "/data/local/bin/su", "/data/local/xbin/su",
-            "/system/sd/xbin/su", "/system/bin/failsafe/su", "/system/xbin/busybox",
-            "/system/app/Superuser.apk", "/data/adb/magisk", "/data/adb/modules",
-            "/sbin/.magisk", "/debug_ramdisk/su"
+        "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
+        "/data/local/su", "/data/local/bin/su", "/data/local/xbin/su",
+        "/system/sd/xbin/su", "/system/bin/failsafe/su", "/system/xbin/busybox",
+        "/system/app/Superuser.apk", "/data/adb/magisk", "/data/adb/magisk.db",
+        "/data/adb/modules", "/data/adb/modules.db", "/sbin/.magisk", "/debug_ramdisk/su",
+        // Magisk / KernelSU / Zygisk / denylist: artifacti pubblici di root manager
+        "/sbin/magisk", "/su/bin/magisk", "/data/adb/ksu", "/data/adb/ksu.db",
+        "/data/adb/zygisksu", "/data/adb/denylist.db", "/data/adb/ksu/bin/ksu",
+        // init scripts e payload temporanei (pattern comuni di injection)
+        "/system/etc/init.d", "/system/su.d", "/system/xbin/su.d",
+        "/data/local/tmp/su", "/data/local/tmp/magisk", "/data/local/tmp/ksu"
+    };
+
+    /** File/dir con nomi pubblici di payload su /sdcard (se leggibile). */
+    private static final String[] SD_INJECT_NAMES = {
+        "/magisk", "/magisk.db", "/ksu", "/zygisksu", "/denylist.db",
+        "/system.img", "/su.bin", "/supersu"
     };
 
     @Override public String id() { return "SYS_INTEGRITY"; }
@@ -53,6 +65,41 @@ public class SystemIntegrityCheck implements Check {
             out.add(new Finding("ROOT", cat, "Nessun binario root standard",
                     Severity.OK, "Non risultano su/busybox/Magisk nei percorsi noti.",
                     "Nessuna azione necessaria."));
+        }
+
+        // --- injection su /sdcard (se leggibile senza permessi) ------------
+        if (Sys.canRead("/storage/emulated/0")) {
+            List<String> foundSd = new ArrayList<>();
+            for (String p : SD_INJECT_NAMES) {
+                if (Sys.exists("/storage/emulated/0" + p)) foundSd.add(p);
+            }
+            if (!foundSd.isEmpty()) {
+                out.add(new Finding("INJECT_SD", cat, "File sospetti su /sdcard",
+                        Severity.WARNING,
+                        "Trovati file/cartelle con nomi tipici di root manager o payload "
+                        + "di installazione: " + join(foundSd),
+                        "Se non li hai messi tu (es. scaricando un APK da un sito), pulisci "
+                        + "lo storage: eliminali e controlla di non avere app con accessibilita' "
+                        + "attiva (la installano spesso con accesso fisico al telefono).")
+                        .detail("Trovati", join(foundSd)));
+            } else {
+                out.add(new Finding("INJECT_SD", cat, "Nessun payload su /sdcard",
+                        Severity.OK,
+                        "Nessun file/cartella con nome pubblico di root manager o payload "
+                        + "di installazione.",
+                        "Nessuna azione necessaria."));
+            }
+        } else {
+            out.add(new Finding("INJECT_SD_NA", cat, "Scansione /sdcard non disponibile",
+                    Severity.INFO,
+                    "Senza permesso di archiviazione l'app non puo' elencare /sdcard: su "
+                    + "Android 11+ serve MANAGE_EXTERNAL_STORAGE (Android 10 e piu' vecchi "
+                    + "READ_EXTERNAL_STORAGE).",
+                    "Se vuoi questa scansione, consenti 'Accesso a tutti i file' a SpyDetector "
+                    + "da Impostazioni > App > Autorizzazioni speciali (se il manifest lo "
+                    + "dichiara) oppure aggiungi MANAGE_EXTERNAL_STORAGE al manifest e riprova. "
+                    + "Nota: i file di sistema /data/adb restano visibili solo con root, "
+                    + "come in ogni antivirus Android."));
         }
 
         // --- build tags / test-keys --------------------------------------
