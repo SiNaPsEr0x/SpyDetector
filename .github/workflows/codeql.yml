@@ -22,7 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [java-kotlin, actions]
+        include:
+          # build manuale: CodeQL deve vedere il nostro build (aapt2 + ecj + d8),
+          # non l'autobuild che non riconosce il progetto
+          - language: java-kotlin
+            build-mode: manual
+          - language: actions
+            build-mode: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -35,6 +41,7 @@ jobs:
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
 
       - name: Setup Java 21
         if: matrix.language == 'java-kotlin'
@@ -43,8 +50,8 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Build compilabile per il database CodeQL
-        if: matrix.language == 'java-kotlin'
+      - name: Build (manual) per il database CodeQL
+        if: matrix.build-mode == 'manual'
         run: |
           ./tools/fetch-toolchain.sh
           ./build.sh
