@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF04070E</color>
+    <color name="panel">#FF0A1322</color>
+    <color name="panel2">#FF0E1B2E</color>
+    <color name="cyan">#FF00E5FF</color>
+    <color name="ok">#FF00FFA3</color>
+    <color name="warn">#FFFFC400</color>
+    <color name="crit">#FFFF3B5C</color>
+    <color name="txt">#FFE6F1FF</color>
+    <color name="dim">#FF74879C</color>
+</resources>

@@ -1,0 +1,13 @@
+# toolchain di build (scaricato, verificato con SHA256)
+.toolchain/
+build/
+dist/
+# python
+__pycache__/
+*.pyc
+# log e artefatti locali
+*.log
+*.idsig
+.idea/
+*.iml
+local.properties

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- scudo -->
+    <path android:fillColor="#00000000" android:strokeColor="#00E5FF" android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M54,28 L78,37 L78,56 C78,70 68,80 54,84 C40,80 30,70 30,56 L30,37 Z" />
+    <!-- occhio / lente -->
+    <path android:fillColor="#00FFA3"
+        android:pathData="M54,46 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.55"
+        android:pathData="M54,46 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+    <path android:fillColor="#04070E"
+        android:pathData="M54,46 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path android:fillColor="#00FFA3"
+        android:pathData="M54,46 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+</vector>

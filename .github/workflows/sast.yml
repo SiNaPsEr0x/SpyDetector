@@ -1,0 +1,59 @@
+name: SAST (Semgrep)
+
+# Analisi statica del codice Java/Android con Semgrep (regole security + Android)
+# e controllo degli script Python/Bash del progetto.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '11 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    name: Semgrep (java, python, bash, actions)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # il container gira come root: git si lamenta della ownership del checkout
+      - name: Fix ownership del checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Semgrep scan
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/java \
+            --config p/secrets \
+            --config p/shell \
+            --sarif --output semgrep.sarif \
+            --metrics=off --disable-version-check \
+            --exclude .toolchain --exclude dist --exclude build \
+            || true
+          python3 - <<'PY'
+          import json
+          d = json.load(open("semgrep.sarif"))
+          res = d.get("runs", [{}])[0].get("results", [])
+          print("risultati semgrep:", len(res))
+          for r in res[:20]:
+              loc = r["locations"][0]["physicalLocation"]
+              print(" -", r["ruleId"], loc["artifactLocation"]["uri"],
+                    "linea", loc.get("region", {}).get("startLine"))
+          PY
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        continue-on-error: true
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep

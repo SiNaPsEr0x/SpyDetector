@@ -1,0 +1,142 @@
+name: Release
+
+# Un solo pulsante: GitHub compila, verifica, attesta l'APK e pubblica la release.
+# Si attiva con un tag v* (./scripts/release.sh 1.1.0) o a mano.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versione da pubblicare (es. 1.1.0). Vuoto = contenuto di VERSION'
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  packages: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build + release firmata e attestata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Versione
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "${{ inputs.version }}" > VERSION
+          fi
+          V="$(tr -d '[:space:]' < VERSION)"
+          [ -n "${{ inputs.version }}" ] && V="${{ inputs.version }}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          echo "SpyDetector v$V"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Cache toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .toolchain
+          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
+
+      - name: Toolchain pinnato + hash verificato
+        run: ./tools/fetch-toolchain.sh
+
+      - name: Build APK di release
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          # opzionali: chiave di firma custodita nei secrets (consigliata)
+          SPD_KS_B64: ${{ secrets.SPD_KS_B64 }}
+          SPD_KS_PASS: ${{ secrets.SPD_KS_PASS }}
+          SPD_KEY_ALIAS: ${{ secrets.SPD_KEY_ALIAS }}
+          SPD_KEY_PASS: ${{ secrets.SPD_KEY_PASS }}
+        run: ./build.sh
+
+      - name: Verifica funzionamento dell'APK
+        run: python3 scripts/verify-apk.py dist/*.apk
+
+      - name: Firma e allineamento (apksigner verify)
+        run: |
+          JAVA=.toolchain/jdk/bin/java
+          [ -x "$JAVA" ] || JAVA=java
+          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk \
+            | tee build/apksigner-verify.txt
+
+      - name: SBOM (SPDX) dell'APK
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          file: dist/SpyDetector-v${{ steps.ver.outputs.version }}-release.apk
+          format: spdx-json
+          output-file: dist/SpyDetector-v${{ steps.ver.outputs.version }}-release.apk.spdx.json
+          artifact-name: ''
+
+      - name: Attestazione di provenienza (build provenance)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/*.apk'
+
+      - name: Attestazione SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: 'dist/*.apk'
+          sbom-path: 'dist/SpyDetector-v${{ steps.ver.outputs.version }}-release.apk.spdx.json'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SpyDetector-release
+          path: dist/*
+
+      - name: Pulizia release precedenti (una sola versione online)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --limit 100 --json tagName,isLatest \
+            --jq '.[] | select(.isLatest|not) | .tagName' | while read -r OLD; do
+              [ -z "$OLD" ] && continue
+              echo "elimino release vecchia: $OLD"
+              gh release delete "$OLD" --yes --cleanup-tag || true
+            done
+
+      - name: Pubblica la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          NOTES=$(cat <<EOF
+          **SpyDetector $TAG** — APK di release firmato (Android 8.0+).
+
+          Installazione: scarica l'APK, aprilo sul telefono, consenti "Installa da questa origine".
+
+          Verifica del download:
+          \`\`\`
+          sha256sum SpyDetector-v${{ steps.ver.outputs.version }}-release.apk
+          \`\`\`
+          Provenienza verificabile con \`gh attestation verify <file> --repo ${{ github.repository }}\`.
+
+          \`\`\`
+          $(cat build/apksigner-verify.txt)
+          \`\`\`
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --latest --notes "$NOTES"
+          else
+            gh release create "$TAG" dist/* --title "SpyDetector $TAG" --notes "$NOTES" --latest
+          fi
