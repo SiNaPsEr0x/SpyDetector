@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Toolchain (aapt2 + d8 + ecj + apksigner)
+        run: ./tools/fetch-toolchain.sh
+
+      - name: Build APK (release, firmato)
+        run: ./build.sh
+
+      - name: Riepilogo
+        run: |
+          echo "### SpyDetector $(cat VERSION)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build/verify.txt >> $GITHUB_STEP_SUMMARY
+          cat dist/*.sha256 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpyDetector-release.apk
+          path: |
+            dist/*.apk
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Pubblica la release (solo su tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/*.apk dist/*.sha256 \
+            --title "SpyDetector ${GITHUB_REF_NAME}" \
+            --notes "APK di release firmato, pronto da installare (Android 8.0+).
+
+          Installazione: scarica l'APK, apri il file, consenti \"Installa da questa origine\".
+
+          $(cat build/verify.txt)" \
+            --latest

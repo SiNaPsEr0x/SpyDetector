@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="it.spydetector.app">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+
+    <!-- Nessun permesso di rete/INTERNET: l'analisi avviene interamente on-device.
+         QUERY_ALL_PACKAGES serve per enumerare le app installate (audit locale). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+
+        <activity
+            android:name="it.spydetector.app.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:theme="@style/AppTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="it.spydetector.app.DetailActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:theme="@style/AppTheme" />
+    </application>
+</manifest>
