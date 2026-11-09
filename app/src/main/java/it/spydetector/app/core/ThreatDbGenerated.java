@@ -2,9 +2,10 @@ package it.spydetector.app.core;
 
 /**
  * GENERATO da scripts/update-threat-db.py — non modificare a mano.
- * Fonte: data/threat-seed.txt + lista curata di ThreatDb.java.
+ * Fonti: data/threat-seed.txt + lista curata di ThreatDb.java;
+ *        data/threat-patterns.txt (pattern pubblici).
  * Aggiornato: 2026-11-09
- * Voci: 51
+ * Voci: 51, Pattern: 68
  */
 final class ThreatDbGenerated {
     private ThreatDbGenerated() {}
@@ -62,5 +63,77 @@ final class ThreatDbGenerated {
         "com.wifispy.monitor|WifiSpy|Stalkerware commerciale|CRITICAL",
         "com.xnspy.app|XNSPY|Stalkerware commerciale|CRITICAL",
         "net.spyapp.minispy|MiniSpy|Stalkerware commerciale|CRITICAL",
+    };
+
+    /** tipo|valore|nome famiglia|tipo|gravita' (PKG|CERT|COMP) */
+    static final String[] PATTERNS = {
+        "PKG|mspy|mSpy|Stalkerware commerciale|CRITICAL",
+        "PKG|flexispy|FlexiSPY|Stalkerware commerciale|CRITICAL",
+        "PKG|hoverwatch|Hoverwatch|Stalkerware commerciale|CRITICAL",
+        "PKG|kidlogger|KidLogger|Stalkerware commerciale|CRITICAL",
+        "PKG|thetruthspy|TheTruthSPY|Stalkerware commerciale|CRITICAL",
+        "PKG|cocospy|CocoSpy|Stalkerware commerciale|CRITICAL",
+        "PKG|eyezy|Eyezy|Stalkerware commerciale|CRITICAL",
+        "PKG|spyzie|Spyzie|Stalkerware commerciale|CRITICAL",
+        "PKG|xnspy|XNSPY|Stalkerware commerciale|CRITICAL",
+        "PKG|ikeymonitor|iKeyMonitor|Stalkerware commerciale|CRITICAL",
+        "PKG|mobilespy|Mobile-Spy|Stalkerware commerciale|CRITICAL",
+        "PKG|spymaster|SpyMaster|Stalkerware commerciale|CRITICAL",
+        "PKG|spyhuman|SpyHuman|Stalkerware commerciale|CRITICAL",
+        "PKG|spybubble|SpyBubble|Stalkerware commerciale|CRITICAL",
+        "PKG|spy24|Spy24|Stalkerware commerciale|CRITICAL",
+        "PKG|mobistealth|MobiStealth|Stalkerware commerciale|CRITICAL",
+        "PKG|stealthgenie|StealthGenie|Stalkerware commerciale|CRITICAL",
+        "PKG|webwatcher|WebWatcher|Stalkerware commerciale|CRITICAL",
+        "PKG|phonesheriff|PhoneSheriff|Stalkerware commerciale|CRITICAL",
+        "PKG|highster|Highster Mobile|Stalkerware commerciale|CRITICAL",
+        "PKG|mobiletracker|MobileTracker|Stalkerware commerciale|CRITICAL",
+        "PKG|fonewatcher|FoneWatcher|Stalkerware commerciale|CRITICAL",
+        "PKG|letspy|LetSpy|Stalkerware commerciale|CRITICAL",
+        "PKG|spyera|Spyera|Stalkerware commerciale|CRITICAL",
+        "PKG|spystealth|SpyStealth|Stalkerware commerciale|CRITICAL",
+        "PKG|trackview|TrackView|Stalkerware / localizzazione|CRITICAL",
+        "PKG|locspy|LocSpy|Stalkerware / localizzazione|CRITICAL",
+        "PKG|wifispy|WifiSpy|Stalkerware commerciale|CRITICAL",
+        "PKG|minispy|MiniSpy|Stalkerware commerciale|CRITICAL",
+        "PKG|familykeylogger|Family Keylogger|Keylogger|CRITICAL",
+        "PKG|mobilecop|MobileCop|Stalkerware commerciale|CRITICAL",
+        "PKG|familysafe|FamilySafe|Stalkerware commerciale|CRITICAL",
+        "PKG|kidscontrol|KidsControl|Stalkerware commerciale|WARNING",
+        "PKG|wifisense|WiFi Sense|Monitoraggio rete|WARNING",
+        "PKG|hiddencam|HiddenCam|Monitoraggio telecamera|WARNING",
+        "PKG|keylog|Keylogger|Keylogger|WARNING",
+        "PKG|spy|Spyware generico|Stalkerware generico|WARNING",
+        "COMP|mspy|mSpy|Stalkerware commerciale|CRITICAL",
+        "COMP|flexispy|FlexiSPY|Stalkerware commerciale|CRITICAL",
+        "COMP|hoverwatch|Hoverwatch|Stalkerware commerciale|CRITICAL",
+        "COMP|kidlogger|KidLogger|Stalkerware commerciale|CRITICAL",
+        "COMP|thetruthspy|TheTruthSPY|Stalkerware commerciale|CRITICAL",
+        "COMP|cocospy|CocoSpy|Stalkerware commerciale|CRITICAL",
+        "COMP|eyezy|Eyezy|Stalkerware commerciale|CRITICAL",
+        "COMP|spyzie|Spyzie|Stalkerware commerciale|CRITICAL",
+        "COMP|xnspy|XNSPY|Stalkerware commerciale|CRITICAL",
+        "COMP|ikeymonitor|iKeyMonitor|Stalkerware commerciale|CRITICAL",
+        "COMP|mobilespy|Mobile-Spy|Stalkerware commerciale|CRITICAL",
+        "COMP|spymaster|SpyMaster|Stalkerware commerciale|CRITICAL",
+        "COMP|spyhuman|SpyHuman|Stalkerware commerciale|CRITICAL",
+        "COMP|spybubble|SpyBubble|Stalkerware commerciale|CRITICAL",
+        "COMP|mobistealth|MobiStealth|Stalkerware commerciale|CRITICAL",
+        "COMP|stealthgenie|StealthGenie|Stalkerware commerciale|CRITICAL",
+        "COMP|phonesheriff|PhoneSheriff|Stalkerware commerciale|CRITICAL",
+        "COMP|mobiletracker|MobileTracker|Stalkerware commerciale|CRITICAL",
+        "COMP|fonewatcher|FoneWatcher|Stalkerware commerciale|CRITICAL",
+        "COMP|letspy|LetSpy|Stalkerware commerciale|CRITICAL",
+        "COMP|spyera|Spyera|Stalkerware commerciale|CRITICAL",
+        "COMP|spystealth|SpyStealth|Stalkerware commerciale|CRITICAL",
+        "COMP|trackview|TrackView|Stalkerware / localizzazione|CRITICAL",
+        "COMP|locspy|LocSpy|Stalkerware / localizzazione|CRITICAL",
+        "COMP|wifispy|WifiSpy|Stalkerware commerciale|CRITICAL",
+        "COMP|minispy|MiniSpy|Stalkerware commerciale|CRITICAL",
+        "COMP|familykeylogger|Family Keylogger|Keylogger|CRITICAL",
+        "COMP|keylog|Keylogger|Keylogger|WARNING",
+        "COMP|surveillance|Monitoraggio|Monitoraggio|WARNING",
+        "COMP|stalker|Stalkerware|Stalkerware|WARNING",
+        "COMP|spy|Spyware generico|Stalkerware generico|WARNING",
     };
 }

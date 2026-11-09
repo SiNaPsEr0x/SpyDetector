@@ -33,6 +33,7 @@ Serve **Android 8.0 o successivo**.
 | **Accessibilità** | app che possono *leggere lo schermo*: è così che si rubano chat, password e codici |
 | **Notifiche e controllo** | chi legge le tue notifiche, chi può impedire la disinstallazione, tastiere e app SMS strane |
 | **Spyware noto** | confronto con un elenco di app di sorveglianza conosciute (mSpy, FlexiSPY, Hoverwatch…) |
+| **Pattern pubblici** | varianti rinominate e repackaging: corrispondenze con nomi di famiglie, firme (SHA-256) e componenti noti |
 | **WhatsApp e Telegram** | versioni modificate (GB WhatsApp, Plus, YoWA…), firma dell'app, come controllare i dispositivi collegati |
 | **App installate** | app arrivate fuori dal Play Store, nomi sospetti, permessi pericolosi (SMS + microfono + posizione + fotocamera) |
 | **Rete** | VPN e tunnel attivi, proxy impostati |

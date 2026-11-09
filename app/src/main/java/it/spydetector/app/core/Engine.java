@@ -10,6 +10,7 @@ import it.spydetector.app.checks.DeviceHardeningCheck;
 import it.spydetector.app.checks.KnownThreatsCheck;
 import it.spydetector.app.checks.MessagingCheck;
 import it.spydetector.app.checks.NetworkCheck;
+import it.spydetector.app.checks.PatternScanCheck;
 import it.spydetector.app.checks.PersistenceCheck;
 import it.spydetector.app.checks.SystemIntegrityCheck;
 import it.spydetector.app.checks.UnknownSideloadCheck;
@@ -39,6 +40,7 @@ public final class Engine {
         l.add(new AccessibilityCheck());
         l.add(new PersistenceCheck());
         l.add(new KnownThreatsCheck());
+        l.add(new PatternScanCheck());
         l.add(new UnknownSideloadCheck());
         l.add(new MessagingCheck());
         l.add(new AppPermissionsCheck());
