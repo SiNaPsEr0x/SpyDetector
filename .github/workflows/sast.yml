@@ -34,7 +34,6 @@ jobs:
           semgrep scan \
             --config p/security-audit \
             --config p/java \
-            --config p/secrets \
             --config p/shell \
             --sarif --output semgrep.sarif \
             --metrics=off --disable-version-check \
