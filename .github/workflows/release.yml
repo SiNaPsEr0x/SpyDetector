@@ -5,6 +5,12 @@ name: Release
 #   attestazioni e upload della release — sempre una sola release online
 # - su un tag v* (./scripts/release.sh 1.1.0)
 # - a mano (workflow_dispatch)
+#
+# Versione: ogni APK pubblicato utilizza la versione in VERSION; a fine
+# workflow, se la corsa è automatica (push su main o dispatch senza input),
+# la versione avanza di 0.0.1 (patch +1) e il bump viene commettito in repo
+# con [skip ci] (niente loop). Le release esplicite (marker "release:" in
+# HEAD, da release.sh o input manuale) non avanzano la versione.
 
 on:
   push:
@@ -38,11 +44,19 @@ jobs:
       - name: Versione
         id: ver
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "${{ inputs.version }}" > VERSION
-          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
           V="$(tr -d '[:space:]' < VERSION)"
-          [ -n "${{ inputs.version }}" ] && V="${{ inputs.version }}"
+          if [ -n "${{ inputs.version }}" ]; then
+            # release esplicita (release.sh o dispatch manuale con input):
+            # scrivi la versione e committa con il marker "release:" così
+            # l'auto-bump a fine workflow non la modifica
+            echo "${{ inputs.version }}" > VERSION
+            git add VERSION
+            git commit -m "release: v${{ inputs.version }} [skip ci]" || true
+            git push
+            V="${{ inputs.version }}"
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
           echo "SpyDetector v$V"
@@ -144,3 +158,20 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "SpyDetector $TAG" --notes "$NOTES" --latest
           fi
+
+      - name: Auto-bump versione (+0.0.1 a ogni APK creato)
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          # release esplicita (HEAD con marker "release:", da release.sh o
+          # input manuale): non avanzare la versione
+          if git log -1 --pretty=%B | grep -q '^release:'; then
+            echo "release esplicita: nessun auto-bump"
+            exit 0
+          fi
+          V="$(tr -d '[:space:]' < VERSION)"
+          BUMP="$(echo "$V" | awk -F. '{print $1"."$2"."($3+1)}')"
+          echo "$BUMP" > VERSION
+          git add VERSION
+          git commit -m "chore: versione $BUMP [skip ci]" || true
+          git push
+          echo "Versione avanzata: $V -> $BUMP (prossimo APK)"
