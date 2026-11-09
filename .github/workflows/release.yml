@@ -5,6 +5,14 @@ name: Release
 #   attestazioni e upload della release — sempre una sola release online
 # - su un tag v* (./scripts/release.sh 1.1.0)
 # - a mano (workflow_dispatch)
+#
+# Versione: ogni APK pubblicato utilizza la versione in VERSION; a fine
+# workflow, se la corsa è automatica (push su main o dispatch senza input),
+# la versione avanza di 0.0.1 (patch +1) e il bump viene commettito in repo
+# con [skip ci] (niente loop). Le release esplicite (input manuale o marker
+# "release:" in HEAD da release.sh) non avanzano la versione. Se main è
+# mosso da push intervenute durante il build, il bump viene riportato con
+# rebase sulla punta remota prima del push (il push non viene respinto).
 
 on:
   push:
@@ -38,11 +46,19 @@ jobs:
       - name: Versione
         id: ver
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "${{ inputs.version }}" > VERSION
-          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
           V="$(tr -d '[:space:]' < VERSION)"
-          [ -n "${{ inputs.version }}" ] && V="${{ inputs.version }}"
+          if [ -n "${{ inputs.version }}" ]; then
+            # release esplicita (release.sh o dispatch manuale con input):
+            # scrivi la versione e committa con il marker "release:" così
+            # l'auto-bump a fine workflow non la modifica
+            echo "${{ inputs.version }}" > VERSION
+            git add VERSION
+            git commit -m "release: v${{ inputs.version }} [skip ci]" || true
+            git push
+            V="${{ inputs.version }}"
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
           echo "SpyDetector v$V"
@@ -144,3 +160,30 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "SpyDetector $TAG" --notes "$NOTES" --latest
           fi
+
+      - name: Auto-bump versione (+0.0.1 a ogni APK creato)
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !github.event.inputs.version
+        run: |
+          # input manuale: la condizione del passo ha gia' escluso il bump;
+          # qui resta solo il check del marker "release:" (release.sh)
+          if git log -1 --pretty=%B | grep -q '^release:'; then
+            echo "release esplicita: nessun auto-bump"
+            exit 0
+          fi
+          V="$(tr -d '[:space:]' < VERSION)"
+          BUMP="$(echo "$V" | awk -F. '{print $1"."$2"."($3+1)}')"
+          echo "$BUMP" > VERSION
+          git add VERSION
+          git commit -m "chore: versione $BUMP [skip ci]" || true
+          # main potrebbe essere mosso da push intervenute durante il build:
+          # riporta il bump commit sulla punta remota (rebase) prima di
+          # pushare, altrimenti il push viene respinto e la versione
+          # avanzata andrebbe persa
+          git fetch origin main
+          if ! git rebase origin/main 2>/dev/null; then
+            echo "rebase fallito (conflitto su VERSION?): bump saltato"
+            git rebase --abort || true
+            exit 0
+          fi
+          git push
+          echo "Versione avanzata: $V -> $BUMP (prossimo APK)"
