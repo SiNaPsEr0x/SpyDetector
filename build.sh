@@ -117,6 +117,7 @@ OUT_APK="$DIST/SpyDetector-v${VERSION_NAME}-release.apk"
   --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
   --ks-pass "pass:$KS_PASS" --key-pass "pass:$KEY_PASS" \
   --min-sdk-version "$MIN_SDK" \
+  --v4-signing-enabled false \
   --out "$OUT_APK" "$BUILD/unsigned.apk" 2>&1 | grep -v 'WARNING' || true
 
 "$JAVA" -jar "$APKSIGNER_JAR" verify --min-sdk-version "$MIN_SDK" --verbose "$OUT_APK" 2>&1 \
