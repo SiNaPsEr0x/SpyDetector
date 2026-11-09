@@ -76,7 +76,10 @@ Nessun passaggio manuale: **GitHub compila, verifica, attesta e pubblica**.
 | `ci.yml` | ogni push/PR | actionlint, toolchain pinnato, build, `verify-apk.py`, `apksigner verify`, artifact |
 | `release.yml` | tag `v*` o manuale | build → verifica → **SBOM SPDX** → **attestazione di provenienza** → release con APK + SHA256, **eliminando le release precedenti** (una sola versione online) |
 | `security-updates.yml` | **ogni giorno 04:17 UTC** | aggiorna action pinnate + toolchain + threat DB, **ricompila e verifica**, scansiona con Trivy/OSV, apre PR solo se tutto passa |
-| `codeql.yml` | push/PR + lunedì | SAST Java/Kotlin e Actions |
+| `codeql.yml` | push/PR + lunedì | CodeQL (Actions) |
+| `sast.yml` | push/PR + lunedì | Semgrep sul codice Java/Android, Python, Bash |
+| `vulnerability-scan.yml` | push + ogni notte | OSV Scanner + Trivy (vuln, secret, misconfig) |
+| `automerge.yml` | PR di aggiornamento | merge automatico **solo se tutti i check sono verdi** |
 | `secrets.yml` | push/PR + ogni notte | gitleaks su tutto lo storico |
 | `malware-scan.yml` | push + ogni notte | ClamAV sull'APK + check IOC dei pacchetti npm/PyPI |
 | `dependency-review.yml` | ogni PR | blocca dipendenze vulnerabili |

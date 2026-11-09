@@ -17,7 +17,10 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **Malware** | ClamAV sull'APK, ogni push e ogni notte | `malware-scan.yml` |
 | **Segreti** | gitleaks su tutto lo storico | `secrets.yml` |
 | **SAST** | CodeQL (Java/Kotlin + Actions) | `codeql.yml` |
-| **Dipendenze** | Dependency Review sulle PR, Dependabot settimanale | `dependency-review.yml`, `dependabot.yml` |
+| **Dipendenze** | Dependency Review sulle PR, Dependabot giornaliero | `dependency-review.yml`, `dependabot.yml` |
+| **Vulnerabilità** | OSV Scanner + Trivy (vuln, secret, misconfig) con report in code scanning | `vulnerability-scan.yml` |
+| **SAST Java** | Semgrep (regole java/security-audit/shell/secrets) | `sast.yml` |
+| **Automerge sicuro** | le PR di aggiornamento vengono unite solo se **tutti** i check sono verdi (le major restano manuali) | `automerge.yml` |
 | **Postura repo** | OpenSSF Scorecard settimanale | `scorecard.yml` |
 | **Aggiornamenti** | job giornaliero che aggiorna toolchain/action/threat DB, **ricompila e verifica**, e apre PR solo se tutto passa | `security-updates.yml` |
 

@@ -142,6 +142,25 @@ def main():
             open(path, "w", encoding="utf-8").write("".join(out))
             changed_files += 1
 
+    # controllo finale: nessuna action deve restare su un tag mobile
+    unpinned = []
+    for fn in sorted(os.listdir(WORKFLOWS)):
+        if not fn.endswith((".yml", ".yaml")):
+            continue
+        for i, line in enumerate(open(os.path.join(WORKFLOWS, fn), encoding="utf-8"), 1):
+            m = USES_RE.match(line.rstrip("\n"))
+            if not m:
+                continue
+            ref = m.group("ref").split("#")[0].strip()
+            if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                unpinned.append("%s:%d %s@%s" % (fn, i, m.group("repo"), ref))
+    for u in unpinned:
+        print("   NON PINNATA: " + u)
+    if unpinned:
+        print("\nERRORE: %d action non pinnate a SHA" % len(unpinned))
+        if os.environ.get("GITHUB_ACTIONS"):
+            return 1
+
     for c in changes:
         print("   " + c)
     print("\n%d workflow aggiornate" % changed_files)
