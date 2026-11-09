@@ -79,16 +79,11 @@ rm -f "$APP/java/it/spydetector/app/BuildConfig.java" 2>/dev/null || true
 
 find "$APP/java" "$BUILD/gen" -name '*.java' > "$BUILD/sources.txt"
 
-# Compilatore: javac se disponibile (lo usano la CI e CodeQL, che traccia le
-# chiamate a javac), altrimenti ECJ (toolchain portabile, nessun JDK completo).
+# Compilatore: SEMPRE l'ECJ pinnato (build deterministica e riproducibile).
+# Solo se SPD_JAVAC e' impostato esplicitamente si usa un javac esterno: serve
+# per gli strumenti che tracciano la compilazione (es. CodeQL), mai per la
+# release. Un javac "di sistema" non deve mai cambiare il risultato.
 JAVAC="${SPD_JAVAC:-}"
-if [ -z "$JAVAC" ]; then
-  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/javac" ]; then
-    JAVAC="$JAVA_HOME/bin/javac"
-  elif command -v javac >/dev/null 2>&1; then
-    JAVAC="javac"
-  fi
-fi
 
 set +e
 if [ -n "$JAVAC" ]; then

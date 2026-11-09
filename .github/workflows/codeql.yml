@@ -17,47 +17,25 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL (Java/Kotlin + Actions)
+    name: CodeQL (Actions)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # build manuale: CodeQL deve vedere il nostro build (aapt2 + ecj + d8),
-          # non l'autobuild che non riconosce il progetto
-          - language: java-kotlin
-            build-mode: manual
+          # Il codice Java e' analizzato da Semgrep (workflow sast.yml): CodeQL
+          # per Java richiede javac, mentre qui si compila con ECJ contro
+          # android.jar (build riproducibile, senza dipendere dall'SDK).
           - language: actions
             build-mode: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
 
       - name: Init CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-
-      - name: Setup Java 21
-        if: matrix.language == 'java-kotlin'
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Build (manual) per il database CodeQL
-        if: matrix.build-mode == 'manual'
-        env:
-          # javac del JDK di setup-java: CodeQL traccia questa build
-          SPD_JAVAC: ${{ env.JAVA_HOME }}/bin/javac
-        run: |
-          ./tools/fetch-toolchain.sh
-          ./build.sh
 
       - name: Analisi
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
