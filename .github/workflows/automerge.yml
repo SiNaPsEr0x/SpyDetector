@@ -35,11 +35,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          # il titolo non va mai interpolato in uno script: passa da env
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           # niente major automatiche per Dependabot
-          if echo "${{ github.event.pull_request.title }}" | grep -qiE 'bump .* from [0-9]+ to [0-9]+$|bump .* from v?[0-9]+ to v?[0-9]+$'; then
-            FROM=$(echo "${{ github.event.pull_request.title }}" | sed -n 's/.*from v\?\([0-9]*\).*/\1/p')
-            TO=$(echo "${{ github.event.pull_request.title }}" | sed -n 's/.*to v\?\([0-9]*\).*/\1/p')
+          if echo "$PR_TITLE" | grep -qiE 'bump .* from [0-9]+ to [0-9]+$|bump .* from v?[0-9]+ to v?[0-9]+$'; then
+            FROM=$(echo "$PR_TITLE" | sed -n 's/.*from v\?\([0-9]*\).*/\1/p')
+            TO=$(echo "$PR_TITLE" | sed -n 's/.*to v\?\([0-9]*\).*/\1/p')
             if [ -n "$FROM" ] && [ -n "$TO" ] && [ "$FROM" != "$TO" ]; then
               echo "salto: aggiornamento major ($FROM -> $TO) da verificare a mano"
               exit 0
