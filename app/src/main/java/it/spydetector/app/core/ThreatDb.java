@@ -46,41 +46,19 @@ public final class ThreatDb {
     }
 
     static {
-        // --- stalkerware / monitoring commerciale ------------------------------
-        k("com.mspy.monitor", "mSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.mspy.application", "mSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.flexispy.android", "FlexiSPY", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.flexispy.omega", "FlexiSPY Omega", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.cyberlink.gethalftone", "FlexiSPY (modulo)", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.kidlogger.android", "KidLogger", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.hoverwatch.android", "Hoverwatch", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.tracker.mobiletracker", "Highster Mobile", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.mobiletracker.android", "MobileTracker", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.spybubble.app", "SpyBubble", "Stalkerware commerciale", Severity.CRITICAL);
-        k("net.spyapp.minispy", "MiniSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.thetruthspy.app", "TheTruthSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.spyera.app", "Spyera", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.cocospy.app", "Cocospy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.fonewatcher.app", "FoneWatcher", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.eyezy.monitor", "Eyezy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.hoverwatch.monitor", "Hoverwatch", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.letspy.app", "LetSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.spyzie.app", "Spyzie", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.wifispy.monitor", "WifiSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.mobilemonitor.android", "Mobile Monitor", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.locspy.app", "LocSpy", "Stalkerware / localizzazione", Severity.CRITICAL);
-        k("com.gpsphonetracker.android", "GPS Phone Tracker", "Stalkerware / localizzazione", Severity.CRITICAL);
-        k("com.famspy.family", "Famspy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.andromoney.spy", "AndroSpy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.bosspy.android", "Bosspy", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.ikeymonitor.app", "iKeyMonitor", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.pctattoolkit.app", "PCTattoolkit", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.timesheet.spy", "TimeSheet", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.spymaster.app", "SpyMaster", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.smsorganizer.spy", "SMS Tracker", "Stalkerware commerciale", Severity.CRITICAL);
-        k("com.familykeylogger.app", "Family Keylogger", "Keylogger", Severity.CRITICAL);
-        k("com.keystroke.logger", "Keylogger", "Keylogger", Severity.CRITICAL);
-        k("com.accuchek.spy", "AccuSpy", "Stalkerware commerciale", Severity.CRITICAL);
+        // Le voci vivono in ThreatDbGenerated.java, rigenerato ogni giorno da
+        // scripts/update-threat-db.py a partire da data/threat-seed.txt.
+        for (String row : ThreatDbGenerated.ENTRIES) {
+            String[] p = row.split("\\|");
+            if (p.length != 4) continue;
+            Severity sev;
+            try {
+                sev = Severity.valueOf(p[3]);
+            } catch (IllegalArgumentException e) {
+                sev = Severity.CRITICAL;
+            }
+            k(p[0], p[1], p[2], sev);
+        }
     }
 
     public static Known find(String pkg) {

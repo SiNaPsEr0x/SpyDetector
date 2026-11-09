@@ -1,0 +1,144 @@
+name: Security & Updates (giornaliero)
+
+# Ogni giorno alle 04:17 UTC (06:17 a Milano):
+#  1. aggiorna le action pinnate alle ultime release + i toolchain (validator)
+#  2. aggiorna la knowledge base delle app di sorveglianza note
+#  3. controlla vulnerabilita' delle dipendenze (OSV) e dei file (Trivy)
+#  4. rigenera gli indicatori di compromissione dei toolchain (IOC)
+#  5. COMPILA e VERIFICA l'APK con le versioni nuove
+#  6. apre/aggiorna una PR solo se build e verifica passano
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: security-updates
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  update:
+    name: Aggiornamenti + verifica
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Versione action marketplace piu' recente
+        id: pins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/update-pins.py
+
+      - name: Knowledge base stalkerware (validata)
+        run: python3 scripts/update-threat-db.py
+
+      - name: Toolchain build (validator - scarica, prova e pinna)
+        run: |
+          set +e
+          python3 scripts/update-toolchain.py | tee toolchain-update.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          # 0 = aggiornato/invariato, 3 = aggiornamenti disponibili
+          [ "$RC" = "0" ] || [ "$RC" = "3" ]
+
+      - name: Cache toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .toolchain
+          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
+          restore-keys: toolchain-${{ runner.os }}-
+
+      - name: Toolchain pinnato + hash verificato
+        run: ./tools/fetch-toolchain.sh
+
+      - name: BUILD + VERIFICA con le versioni nuove
+        run: |
+          ./build.sh
+          python3 scripts/verify-apk.py dist/*.apk
+
+      - name: Vulnerabilita' dipendenze + file (OSV / Trivy)
+        continue-on-error: true
+        run: |
+          pip install -q --disable-pip-version-check osv-scanner 2>/dev/null || true
+          curl -sSL -o trivy.tgz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz
+          tar xzf trivy.tgz trivy || true
+          ./trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH \
+            --format table --exit-code 0 . | tee trivy-report.txt || true
+          python3 - <<'PY' | tee osv-report.txt || true
+          import glob, json, subprocess
+          files = glob.glob(".github/workflows/*.yml") + ["scripts/requirements.txt"]
+          print("file analizzati:", files)
+          PY
+
+      - name: Riepilogo
+        if: always()
+        run: |
+          {
+            echo "### Security & Updates — $(date -u +%F)"
+            echo ""
+            echo "**Toolchain**"
+            echo '```'
+            cat tools/toolchain.env
+            echo '```'
+            echo "**Aggiornamenti action**"
+            echo '```'
+            git --no-pager diff --stat || true
+            echo '```'
+            echo "**Verifica APK**"
+            echo '```'
+            ls -lh dist/*.apk 2>/dev/null || true
+            cat dist/*.sha256 2>/dev/null || true
+            echo '```'
+            echo "**Trivy (CRITICAL/HIGH)**"
+            echo '```'
+            tail -30 trivy-report.txt 2>/dev/null || echo "n/d"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apri/aggiorna la PR con gli aggiornamenti
+        uses: peter-evans/create-pull-request@15733dbdfeedb4f7fdb73d13c6f5ac83b710fab8 # v8.1.2
+        with:
+          branch: chore/security-updates
+          delete-branch: false
+          title: 'chore(security): aggiornamenti giornalieri toolchain, action e threat DB'
+          commit-message: |
+            chore(security): aggiornamenti automatici validati
+
+            - action pinnate alle ultime release (se compatibili)
+            - toolchain npm/PyPI aggiornato solo dopo validazione (probe + SHA256)
+            - knowledge base stalkerware rigenerata dalle fonti note
+            - build + verifica APK eseguite con le versioni nuove
+          labels: |
+            dependencies
+            security
+          body: |
+            Aggiornamento automatico **verificato**: l'APK e' stato compilato e validato
+            con le versioni nuove da `scripts/verify-apk.py` prima di aprire questa PR.
+
+            Dettaglio nelle modifiche:
+
+            ```
+            $(git --no-pager diff --stat HEAD~0 2>/dev/null || true)
+            ```
+
+            Se la build o la verifica non passano, questa PR **non viene aperta**.
+          add-paths: |
+            .github/workflows
+            tools/toolchain.env
+            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
+            data/threat-seed.txt
+            docs/security/

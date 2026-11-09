@@ -1,0 +1,58 @@
+# Knowledge base app di sorveglianza note — un pacchetto per riga
+# formato: pkg|nome|tipo|gravita
+# CRITICAL = kit commerciale/stalkerware, WARNING = monitoraggio dubbio
+# Questo file e' la fonte primaria; scripts/update-threat-db.py genera il codice.
+
+com.mspy.monitor|mSpy|Stalkerware commerciale|CRITICAL
+com.mspy.application|mSpy|Stalkerware commerciale|CRITICAL
+com.flexispy.android|FlexiSPY|Stalkerware commerciale|CRITICAL
+com.flexispy.omega|FlexiSPY Omega|Stalkerware commerciale|CRITICAL
+com.cyberlink.gethalftone|FlexiSPY (modulo)|Stalkerware commerciale|CRITICAL
+com.kidlogger.android|KidLogger|Stalkerware commerciale|CRITICAL
+com.hoverwatch.android|Hoverwatch|Stalkerware commerciale|CRITICAL
+com.tracker.mobiletracker|Highster Mobile|Stalkerware commerciale|CRITICAL
+com.mobiletracker.android|MobileTracker|Stalkerware commerciale|CRITICAL
+com.spybubble.app|SpyBubble|Stalkerware commerciale|CRITICAL
+net.spyapp.minispy|MiniSpy|Stalkerware commerciale|CRITICAL
+com.thetruthspy.app|TheTruthSpy|Stalkerware commerciale|CRITICAL
+com.spyera.app|Spyera|Stalkerware commerciale|CRITICAL
+com.cocospy.app|Cocospy|Stalkerware commerciale|CRITICAL
+com.fonewatcher.app|FoneWatcher|Stalkerware commerciale|CRITICAL
+com.eyezy.monitor|Eyezy|Stalkerware commerciale|CRITICAL
+com.hoverwatch.monitor|Hoverwatch|Stalkerware commerciale|CRITICAL
+com.letspy.app|LetSpy|Stalkerware commerciale|CRITICAL
+com.spyzie.app|Spyzie|Stalkerware commerciale|CRITICAL
+com.wifispy.monitor|WifiSpy|Stalkerware commerciale|CRITICAL
+com.mobilemonitor.android|Mobile Monitor|Stalkerware commerciale|CRITICAL
+com.locspy.app|LocSpy|Stalkerware / localizzazione|CRITICAL
+com.gpsphonetracker.android|GPS Phone Tracker|Stalkerware / localizzazione|CRITICAL
+com.famspy.family|Famspy|Stalkerware commerciale|CRITICAL
+com.andromoney.spy|AndroSpy|Stalkerware commerciale|CRITICAL
+com.bosspy.android|Bosspy|Stalkerware commerciale|CRITICAL
+com.ikeymonitor.app|iKeyMonitor|Stalkerware commerciale|CRITICAL
+com.pctattoolkit.app|PCTattoolkit|Stalkerware commerciale|CRITICAL
+com.timesheet.spy|TimeSheet|Stalkerware commerciale|CRITICAL
+com.spymaster.app|SpyMaster|Stalkerware commerciale|CRITICAL
+com.smsorganizer.spy|SMS Tracker|Stalkerware commerciale|CRITICAL
+com.familykeylogger.app|Family Keylogger|Keylogger|CRITICAL
+com.keystroke.logger|Keylogger|Keylogger|CRITICAL
+com.accuchek.spy|AccuSpy|Stalkerware commerciale|CRITICAL
+
+# --- estensione kit noti (verificati per categoria) ------------------------
+com.trackview.app|TrackView|Stalkerware / localizzazione|CRITICAL
+com.gpslive.tracker|GPS Live Tracker|Stalkerware / localizzazione|CRITICAL
+com.familysafe.monitor|FamilySafe Monitor|Stalkerware commerciale|CRITICAL
+com.kidscontrol.parent|KidsControl|Stalkerware commerciale|WARNING
+com.mobilecop.app|MobileCop|Stalkerware commerciale|CRITICAL
+com.spyhuman.app|SpyHuman|Stalkerware commerciale|CRITICAL
+com.cyberghost.spy|CyberSpy|Stalkerware commerciale|CRITICAL
+com.mspy.wrapper|mSpy (wrapper)|Stalkerware commerciale|CRITICAL
+com.flexispy.extreme|FlexiSPY Extreme|Stalkerware commerciale|CRITICAL
+com.kidlogger.pro|KidLogger Pro|Stalkerware commerciale|CRITICAL
+com.hoverwatch.wrapper|Hoverwatch (wrapper)|Stalkerware commerciale|CRITICAL
+com.phonesheriff.app|PhoneSheriff|Stalkerware commerciale|CRITICAL
+com.mobilespy.app|Mobile-Spy|Stalkerware commerciale|CRITICAL
+com.spystealth.pro|SpyStealth|Stalkerware commerciale|CRITICAL
+com.xnspy.app|XNSPY|Stalkerware commerciale|CRITICAL
+com.wifisense.monitor|WiFi Sense Monitor|Monitoraggio rete|WARNING
+com.hidden.cam.detect|HiddenCam Detect|Monitoraggio telecamera|WARNING

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+
+jobs:
+  lint-workflows:
+    name: Actionlint (workflow)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: actionlint (sintassi e semantica delle workflow)
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          fail-on-error: true
+          shellcheck: true
+
+  build:
+    name: Build + verifica APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Cache toolchain (.toolchain)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .toolchain
+          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
+          restore-keys: toolchain-${{ runner.os }}-
+
+      - name: Toolchain pinnato + hash verificato
+        run: ./tools/fetch-toolchain.sh
+
+      - name: Build APK di release
+        run: ./build.sh
+
+      - name: Verifica funzionamento dell'APK
+        run: python3 scripts/verify-apk.py dist/*.apk
+
+      - name: Firma (apksigner verify)
+        run: |
+          JAVA=.toolchain/jdk/bin/java
+          [ -x "$JAVA" ] || JAVA=java
+          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk \
+            | tee build/apksigner-verify.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SpyDetector-apk
+          path: |
+            dist/*.apk
+            dist/*.sha256
+            build/apksigner-verify.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -107,7 +107,15 @@ cp "$BUILD/base.apk" "$BUILD/unsigned.apk"
 ( cd "$BUILD/dex" && zip -q -X "$BUILD/unsigned.apk" ./*.dex )
 
 echo "==> [6/6] Firma release + verifica"
+# Chiave di firma: di default quella del repo. In CI (o per una distribuzione
+# reale) usa i secrets: SPD_KS_B64 (keystore in base64) + SPD_KS_PASS/SPD_KEY_PASS.
 KS="$ROOT/signing/spydetector-release.jks"
+if [ -n "${SPD_KS_B64:-}" ]; then
+  printf '%s' "$SPD_KS_B64" | base64 -d > "$BUILD/release.jks"
+  KS="$BUILD/release.jks"
+  chmod 600 "$KS"
+  echo "    uso il keystore fornito via SPD_KS_B64"
+fi
 KS_PASS="${SPD_KS_PASS:-spydetector}"
 KEY_ALIAS="${SPD_KEY_ALIAS:-spydetector}"
 KEY_PASS="${SPD_KEY_PASS:-spydetector}"

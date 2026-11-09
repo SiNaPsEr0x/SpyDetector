@@ -1,64 +1,105 @@
 #!/usr/bin/env bash
-# SpyDetector - toolchain fetch
-# Scarica aapt2 + d8 + ecj + apksigner (Android build tools) e un JDK portabile
-# SOLO da registry npm / PyPI, cosi' la build funziona anche in ambienti
-# senza accesso a dl.google.com. Tutto finisce in .toolchain/ (git-ignored).
+# SpyDetector — toolchain fetch (versioni pinnate + SHA256 verificato)
+#
+# Scarica JDK 21, aapt2, d8, ecj, apksigner e android.jar SOLO da registry
+# pubblici (npm/PyPI), verificando l'hash di ogni artefatto prima di usarlo.
+# Le versioni e i digest stanno in tools/toolchain.env, generato e validato da
+# scripts/update-toolchain.py (aggiornato dalla CI ogni giorno).
 set -euo pipefail
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TC="$ROOT/.toolchain"
-mkdir -p "$TC"
+ENVF="$ROOT/tools/toolchain.env"
+CACHE="${SPD_CACHE_DIR:-$TC/cache}"
 
-need() { command -v "$1" >/dev/null 2>&1; }
-have_java=0
-if need java && java -version >/dev/null 2>&1; then have_java=1; fi
+# shellcheck disable=SC1090
+[ -f "$ENVF" ] && . "$ENVF"
+mkdir -p "$TC/bin" "$TC/lib" "$CACHE"
 
-echo "==> [1/4] JDK"
+sha() { sha256sum "$1" | cut -d' ' -f1; }
+
+# download(url, dest, sha256_atteso)
+download() {
+  local url="$1" dest="$2" want="$3"
+  if [ -f "$dest" ] && [ -n "$want" ] && [ "$(sha "$dest")" = "$want" ]; then
+    echo "    cache ok: $(basename "$dest")"
+    return 0
+  fi
+  echo "    scarico $(basename "$dest")"
+  curl -sSL --retry 3 --fail -o "$dest.part" "$url"
+  if [ -n "$want" ]; then
+    local got; got="$(sha "$dest.part")"
+    if [ "$got" != "$want" ]; then
+      echo "    ERRORE: SHA256 di $(basename "$dest") non corrisponde" >&2
+      echo "      atteso: $want" >&2
+      echo "      ottenuto: $got" >&2
+      rm -f "$dest.part"; return 1
+    fi
+  fi
+  mv "$dest.part" "$dest"
+}
+
+echo "==> [1/4] JDK 21 portabile (jdk4py ${JDK4PY_VERSION:-?})"
 if [ ! -x "$TC/jdk/bin/java" ]; then
-  if [ "$have_java" = "1" ]; then
-    echo "    uso java di sistema: $(command -v java)"
-  else
-    pip download --no-deps -q -d "$TC/jdkwhl" "jdk4py==21.0.8.2" \
-      --only-binary=:all: --platform manylinux_2_17_x86_64 --python-version 3.11
-    python3 - "$TC" <<'PY'
-import sys, glob, zipfile, os
-tc = sys.argv[1]
-whl = glob.glob(os.path.join(tc, "jdkwhl", "*.whl"))[0]
-zipfile.ZipFile(whl).extractall(os.path.join(tc, "jdkx"))
-src = os.path.join(tc, "jdkx", "jdk4py", "java-runtime")
-os.rename(src, os.path.join(tc, "jdk"))
-for f in glob.glob(os.path.join(tc, "jdk", "bin", "*")):
-    os.chmod(f, 0o755)
+  WHEEL="$CACHE/jdk4py.whl"
+  download "${JDK4PY_URL:?tools/toolchain.env mancante}" "$WHEEL" "${JDK4PY_SHA256:-}"
+  python3 - "$WHEEL" "$TC" <<'PY'
+import os, sys, zipfile, shutil
+whl, tc = sys.argv[1], sys.argv[2]
+tmp = os.path.join(tc, "_jdkx")
+shutil.rmtree(tmp, ignore_errors=True)
+zipfile.ZipFile(whl).extractall(tmp)
+src = os.path.join(tmp, "jdk4py", "java-runtime")
+dst = os.path.join(tc, "jdk")
+shutil.rmtree(dst, ignore_errors=True)
+shutil.move(src, dst)
+for f in os.listdir(os.path.join(dst, "bin")):
+    os.chmod(os.path.join(dst, "bin", f), 0o755)
+shutil.rmtree(tmp, ignore_errors=True)
 print("    JDK installato in .toolchain/jdk")
 PY
-    rm -rf "$TC/jdkwhl" "$TC/jdkx"
-  fi
+else
+  echo "    gia' presente: $("$TC/jdk/bin/java" -version 2>&1 | head -1)"
 fi
 
-echo "==> [2/4] aapt2 (npm: aaptjs3)"
-if [ ! -x "$TC/bin/aapt2" ]; then
-  mkdir -p "$TC/bin"
-  curl -sSL -o "$TC/aaptjs3.tgz" https://registry.npmjs.org/aaptjs3/-/aaptjs3-2.0.2.tgz
-  tar xzf "$TC/aaptjs3.tgz" -C "$TC" package/bin/x64/linux/aapt2
+echo "==> [2/4] aapt2 (npm aaptjs3 ${AAPTJS3_VERSION:-?})"
+AAPT_TGZ="$CACHE/aaptjs3.tgz"
+download "${AAPTJS3_URL:?}" "$AAPT_TGZ" "${AAPTJS3_SHA256:-}"
+if [ ! -x "$TC/bin/aapt2" ] || [ "$(sha "$TC/bin/aapt2")" != "${AAPT2_SHA256:-}" ]; then
+  tar xzf "$AAPT_TGZ" -C "$TC" "package/bin/x64/linux/aapt2"
   mv "$TC/package/bin/x64/linux/aapt2" "$TC/bin/aapt2"
   chmod +x "$TC/bin/aapt2"
-  rm -rf "$TC/package" "$TC/aaptjs3.tgz"
+  rm -rf "$TC/package"
 fi
-
-echo "==> [3/4] d8 + ecj + apksigner + android.jar (npm: @drxiaozhi/minapk)"
-if [ ! -f "$TC/lib/d8.jar" ] || [ ! -f "$TC/lib/android.jar" ]; then
-  mkdir -p "$TC/lib"
-  curl -sSL -o "$TC/minapk.tgz" https://registry.npmjs.org/@drxiaozhi/minapk/-/minapk-0.5.1.tgz
-  tar xzf "$TC/minapk.tgz" -C "$TC" \
-      package/tools/d8.jar package/tools/ecj-3.45.0.jar \
-      package/tools/apksigner.jar package/tools/android.jar \
-      package/tools/debug.keystore package/LICENSES
-  mv "$TC/package/tools/"*.jar "$TC/lib/"
-  mv "$TC/package/tools/debug.keystore" "$TC/lib/debug.keystore"
-  mv "$TC/package/LICENSES" "$TC/lib/LICENSES"
-  rm -rf "$TC/package" "$TC/minapk.tgz"
+if [ -n "${AAPT2_SHA256:-}" ] && [ "$(sha "$TC/bin/aapt2")" != "$AAPT2_SHA256" ]; then
+  echo "    ERRORE: hash di aapt2 non corrisponde" >&2; exit 1
 fi
+echo "    $("$TC/bin/aapt2" version 2>&1 | head -1)"
 
-echo "==> [4/4] verifica"
-"$TC/bin/aapt2" version || true
-"$TC/lib/d8.jar" >/dev/null 2>&1 || test -f "$TC/lib/d8.jar"
-echo "OK toolchain in $TC"
+echo "==> [3/4] d8 + ecj + apksigner + android.jar (npm minapk ${MINAPK_VERSION:-?})"
+MK_TGZ="$CACHE/minapk.tgz"
+download "${MINAPK_URL:?}" "$MK_TGZ" "${MINAPK_SHA256:-}"
+mkdir -p "$TC/_mk"
+tar xzf "$MK_TGZ" -C "$TC/_mk" \
+    package/tools/d8.jar package/tools/ecj-3.45.0.jar \
+    package/tools/apksigner.jar package/tools/android.jar \
+    package/tools/debug.keystore package/LICENSES
+cp "$TC/_mk/package/tools/"*.jar "$TC/lib/"
+cp "$TC/_mk/package/tools/debug.keystore" "$TC/lib/debug.keystore"
+[ -d "$TC/lib/LICENSES" ] || cp -r "$TC/_mk/package/LICENSES" "$TC/lib/LICENSES"
+rm -rf "$TC/_mk"
+
+for pair in "d8.jar:D8_SHA256" "ecj-3.45.0.jar:ECJ_SHA256" \
+            "apksigner.jar:APKSIGNER_SHA256" "android.jar:ANDROIDJAR_SHA256"; do
+  f="${pair%%:*}"; key="${pair##*:}"
+  want="${!key:-}"
+  if [ -n "$want" ] && [ "$(sha "$TC/lib/$f")" != "$want" ]; then
+    echo "    ERRORE: hash di $f non corrisponde" >&2; exit 1
+  fi
+done
+echo "    jar presenti: $(ls "$TC/lib"/*.jar | wc -l)"
+
+echo "==> [4/4] verifica finale"
+"$TC/jdk/bin/java" -version 2>&1 | head -1
+du -sh "$TC" | awk '{print "    toolchain: " $1}'
+echo "OK toolchain"

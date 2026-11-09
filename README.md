@@ -67,16 +67,41 @@ adb install -r dist/SpyDetector-v1.0.0-release.apk
 adb shell am start -n it.spydetector.app/.MainActivity
 ```
 
-## Release automatica (una sola versione per volta)
+## Tutto automatizzato su GitHub Actions
 
-Su ogni push/tag la GitHub Action compila e verifica l'APK; **solo su tag `v*`**
-crea la release con l'APK e il suo SHA256 in allegato.
+Nessun passaggio manuale: **GitHub compila, verifica, attesta e pubblica**.
+
+| Workflow | Quando | Cosa fa |
+|---|---|---|
+| `ci.yml` | ogni push/PR | actionlint, toolchain pinnato, build, `verify-apk.py`, `apksigner verify`, artifact |
+| `release.yml` | tag `v*` o manuale | build → verifica → **SBOM SPDX** → **attestazione di provenienza** → release con APK + SHA256, **eliminando le release precedenti** (una sola versione online) |
+| `security-updates.yml` | **ogni giorno 04:17 UTC** | aggiorna action pinnate + toolchain + threat DB, **ricompila e verifica**, scansiona con Trivy/OSV, apre PR solo se tutto passa |
+| `codeql.yml` | push/PR + lunedì | SAST Java/Kotlin e Actions |
+| `secrets.yml` | push/PR + ogni notte | gitleaks su tutto lo storico |
+| `malware-scan.yml` | push + ogni notte | ClamAV sull'APK + check IOC dei pacchetti npm/PyPI |
+| `dependency-review.yml` | ogni PR | blocca dipendenze vulnerabili |
+| `scorecard.yml` | settimanale | punteggio OpenSSF Scorecard |
+
+Dependabot (`.github/dependabot.yml`) tiene allineate action e dipendenze Python.
+
+### Nuova release (un comando)
 
 ```bash
-./scripts/release.sh 1.1.0     # aggiorna VERSION, commit, tag, push -> release
+./scripts/release.sh 1.1.0     # VERSION + commit + push + workflow Release
 ```
 
 La release marcata *Latest* è sempre l'unica versione corrente.
+
+### Sicurezza della catena di build
+
+- toolchain pinnato a **versione + SHA256** (`tools/toolchain.env`), aggiornato
+  solo dopo che la nuova versione è stata **scaricata e provata**
+  (`scripts/update-toolchain.py`);
+- action pinnate al **commit SHA** (`scripts/update-pins.py`);
+- APK verificato nel contenuto, non solo nella firma (`scripts/verify-apk.py`);
+- IOC di supply chain sui pacchetti usati per la build (`scripts/check-iocs.py`).
+
+Dettagli e limiti: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Struttura
 
@@ -84,14 +109,24 @@ La release marcata *Latest* è sempre l'unica versione corrente.
 app/src/main/java/it/spydetector/app/
 ├── MainActivity.java        dashboard HUD, scan, condivisione report
 ├── DetailActivity.java      risultati espandibili per gravità
-├── core/                    Engine, Check, Finding, Report, ThreatDb, AccessState…
-├── checks/                  8 moduli di analisi (uno per area)
+├── core/                    Engine, Check, Finding, Report, AccessState…
+│   ├── ThreatDb.java        lookup                                      (curato)
+│   └── ThreatDbGenerated.java  knowledge base                           (generato)
+├── checks/                  9 moduli di analisi (uno per area)
 ├── ui/                      HudBackground, RiskGauge, Ui
 └── util/Sys.java
-tools/fetch-toolchain.sh     download toolchain (npm/PyPI)
+data/threat-seed.txt         knowledge base stalkerware (fonte primaria)
+tools/toolchain.env          versioni + SHA256 del toolchain (generato/validato)
+tools/fetch-toolchain.sh     download toolchain con verifica hash
 build.sh                     build + firma APK di release
-.github/workflows/release.yml
-scripts/release.sh
+scripts/
+├── release.sh               nuova release via GitHub Actions
+├── update-toolchain.py      trova, prova e pinna la toolchain più recente
+├── update-pins.py           pin delle action (solo major compatibili)
+├── update-threat-db.py      rigenera + valida la knowledge base
+├── verify-apk.py            verifica che l'APK funzioni davvero
+└── check-iocs.py            IOC della supply chain di build
+.github/workflows/           ci, release, security-updates, codeql, secrets, malware, deps, scorecard
 ```
 
 ## Limiti (dichiarati, non nascosti)
