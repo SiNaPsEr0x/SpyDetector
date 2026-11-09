@@ -44,6 +44,7 @@ public class MainActivity extends Activity implements Engine.Listener {
     private TextView scanBtn;
     private TextView detailsBtn;
     private TextView shareBtn;
+    private TextView exportJsonBtn;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String> logLines = new ArrayList<>();
@@ -188,6 +189,22 @@ public class MainActivity extends Activity implements Engine.Listener {
         btnRowLp.topMargin = Ui.dp(this, 10);
         btnRow.setLayoutParams(btnRowLp);
 
+        LinearLayout btnRow2 = new LinearLayout(this);
+        btnRow2.setOrientation(LinearLayout.HORIZONTAL);
+        exportJsonBtn = Ui.button(this, "ESPORTA JSON", Ui.TXT, false);
+        exportJsonBtn.setAlpha(0.45f);
+        exportJsonBtn.setEnabled(false);
+        exportJsonBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { shareJsonReport(); }
+        });
+        btnRow2.addView(exportJsonBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 48)));
+        LinearLayout.LayoutParams btnRow2Lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        btnRow2Lp.topMargin = Ui.dp(this, 10);
+        btnRow2.setLayoutParams(btnRow2Lp);
+        col.addView(btnRow2);
+
         col.addView(Ui.vspace(this, 24));
 
         verdictBox = new LinearLayout(this);
@@ -265,6 +282,10 @@ public class MainActivity extends Activity implements Engine.Listener {
         detailsBtn.setAlpha(0.45f);
         shareBtn.setEnabled(false);
         shareBtn.setAlpha(0.45f);
+        if (exportJsonBtn != null) {
+            exportJsonBtn.setEnabled(false);
+            exportJsonBtn.setAlpha(0.45f);
+        }
         Engine.run(this, this);
     }
 
@@ -324,6 +345,10 @@ public class MainActivity extends Activity implements Engine.Listener {
         detailsBtn.setAlpha(1f);
         shareBtn.setEnabled(true);
         shareBtn.setAlpha(1f);
+        if (exportJsonBtn != null) {
+            exportJsonBtn.setEnabled(true);
+            exportJsonBtn.setAlpha(1f);
+        }
     }
 
     private static int scoreColor(int score) {
@@ -473,6 +498,56 @@ public class MainActivity extends Activity implements Engine.Listener {
         send.putExtra(Intent.EXTRA_SUBJECT, "SpyDetector report");
         send.putExtra(Intent.EXTRA_TEXT, sb.toString());
         startActivity(Intent.createChooser(send, "Condividi report"));
+    }
+
+    private void shareJsonReport() {
+        if (report == null) return;
+        Report r = report;
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        sb.append("  \"app\": \"SpyDetector\",\n");
+        sb.append("  \"version\": \"").append(BuildConfig.VERSION_NAME).append("\",\n");
+        sb.append("  \"score\": ").append(r.score()).append(",\n");
+        sb.append("  \"verdict\": \"").append(escapeJson(r.verdict())).append("\",\n");
+        sb.append("  \"problems\": ").append(r.problems()).append(",\n");
+        sb.append("  \"deviceInfo\": {\n");
+        boolean first = true;
+        for (java.util.Map.Entry<String, String> e : r.deviceInfo.entrySet()) {
+            if (e.getKey().startsWith("~")) continue;
+            if (!first) sb.append(",\n");
+            sb.append("    \"").append(escapeJson(e.getKey())).append("\": \"")
+              .append(escapeJson(e.getValue())).append("\"");
+            first = false;
+        }
+        sb.append("\n  },\n");
+        sb.append("  \"findings\": [\n");
+        first = true;
+        for (Finding f : r.findings) {
+            if (!first) sb.append(",\n");
+            sb.append("    {\n");
+            sb.append("      \"id\": \"").append(escapeJson(f.checkId)).append("\",\n");
+            sb.append("      \"category\": \"").append(escapeJson(f.category)).append("\",\n");
+            sb.append("      \"title\": \"").append(escapeJson(f.title)).append("\",\n");
+            sb.append("      \"severity\": \"").append(f.severity.name()).append("\",\n");
+            sb.append("      \"evidence\": \"").append(escapeJson(f.evidence)).append("\",\n");
+            sb.append("      \"advice\": \"").append(escapeJson(f.advice)).append("\"\n");
+            sb.append("    }");
+            first = false;
+        }
+        sb.append("\n  ]\n");
+        sb.append("}\n");
+        
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("application/json");
+        send.putExtra(Intent.EXTRA_SUBJECT, "SpyDetector report JSON");
+        send.putExtra(Intent.EXTRA_TEXT, sb.toString());
+        startActivity(Intent.createChooser(send, "Esporta report JSON"));
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 
     @Override
