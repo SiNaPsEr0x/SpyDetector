@@ -125,26 +125,44 @@ public class PatternScanCheck implements Check {
         return out;
     }
 
-    /** Prima componente (servizio/receiver) il cui nome corrisponde a un pattern COMP. */
+    /**
+     * Componente (servizio/receiver) con il pattern COMP piu' forte: vengono
+     * valutati TUTTI i componenti e si tiene il match migliore. Se si
+     * tornasse alla prima corrispondenza, un componente generico
+     * (es. SpyService) davanti a uno specifico (com.flexispy.MonitorService)
+     * sopprimerebbe la segnalazione CRITICAL.
+     */
     private static String suspiciousComponent(Context ctx, String pkg) {
         try {
             PackageManager pm = ctx.getPackageManager();
             PackageInfo pi = pm.getPackageInfo(pkg,
                     PackageManager.GET_SERVICES | PackageManager.GET_RECEIVERS);
-            List<String> names = new ArrayList<>();
+            ThreatDb.Pattern best = null;
+            String bestComp = null;
             if (pi.services != null) {
-                for (android.content.pm.ServiceInfo c : pi.services) names.add(c.name);
+                for (android.content.pm.ServiceInfo c : pi.services) {
+                    ThreatDb.Pattern p = ThreatDb.matchComponentPattern(c.name);
+                    if (p != null && stronger(p, best)) { best = p; bestComp = c.name; }
+                }
             }
             if (pi.receivers != null) {
-                for (android.content.pm.ActivityInfo c : pi.receivers) names.add(c.name);
+                for (android.content.pm.ActivityInfo c : pi.receivers) {
+                    ThreatDb.Pattern p = ThreatDb.matchComponentPattern(c.name);
+                    if (p != null && stronger(p, best)) { best = p; bestComp = c.name; }
+                }
             }
-            for (String n : names) {
-                if (ThreatDb.matchComponentPattern(n) != null) return n;
-            }
+            return bestComp;
         } catch (Throwable ignored) {
             // alcune ROM nascondono i componenti alle app: niente da segnalare
         }
         return null;
+    }
+
+    /** True se il pattern a scatta piu' forte (CRITICAL davanti a WARNING, valore piu' lungo). */
+    private static boolean stronger(ThreatDb.Pattern a, ThreatDb.Pattern b) {
+        if (b == null) return true;
+        if (a.severity != b.severity) return a.severity.ordinal() > b.severity.ordinal();
+        return a.value.length() > b.value.length();
     }
 
     private static String slug(String pkg) {
