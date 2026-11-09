@@ -1,11 +1,15 @@
 name: Release
 
-# Un solo pulsante: GitHub compila, verifica, attesta l'APK e pubblica la release.
-# Si attiva con un tag v* (./scripts/release.sh 1.1.0) o a mano.
+# Ricostruisce e pubblica l'APK:
+# - su OGNI push su main (ogni modifica al codice): rebuild, verifica, SBOM,
+#   attestazioni e upload della release — sempre una sola release online
+# - su un tag v* (./scripts/release.sh 1.1.0)
+# - a mano (workflow_dispatch)
 
 on:
   push:
     tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
