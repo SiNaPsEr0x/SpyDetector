@@ -4,7 +4,7 @@
 Nessun permesso `INTERNET`: il telefono non manda fuori un solo byte.
 
 <p align="center">
-  <img src="docs/preview.svg" alt="SpyDetector preview" width="720">
+  <img src="docs/preview.png" alt="SpyDetector — dashboard: risk index, contatori per gravità, aree analizzate" width="900">
 </p>
 
 ---
@@ -128,7 +128,8 @@ scripts/
 ├── update-pins.py           pin delle action (solo major compatibili)
 ├── update-threat-db.py      rigenera + valida la knowledge base
 ├── verify-apk.py            verifica che l'APK funzioni davvero
-└── check-iocs.py            IOC della supply chain di build
+├── check-iocs.py            IOC della supply chain di build
+└── make-preview.py          banner del README (docs/preview.png), generato a griglia
 .github/workflows/           ci, release, security-updates, codeql, secrets, malware, deps, scorecard
 ```
 
