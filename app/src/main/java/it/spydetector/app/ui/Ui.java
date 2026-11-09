@@ -112,7 +112,7 @@ public final class Ui {
 
     public static View vspace(Context c, int dp) {
         View v = new View(c);
-        v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(c, dp)));
+        v.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(c, dp)));
         return v;
     }
 

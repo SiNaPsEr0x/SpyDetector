@@ -12,11 +12,11 @@ import it.spydetector.app.core.Finding;
 import it.spydetector.app.core.ScanData;
 import it.spydetector.app.core.Severity;
 
+import android.net.LinkAddress;
+import android.net.LinkProperties;
 import java.net.Inet4Address;
 import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -40,16 +40,25 @@ public class NetworkCheck implements Check {
         List<String> tun = new ArrayList<>();
         List<String> raw = new ArrayList<>();
         try {
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isUp()) continue;
-                String name = ni.getName() == null ? "" : ni.getName();
-                if (name.startsWith("tun") || name.startsWith("tap") || name.startsWith("ppp")
-                        || name.contains("wg")) {
-                    tun.add(name);
-                }
-                for (InetAddress a : Collections.list(ni.getInetAddresses())) {
-                    if (a instanceof Inet4Address && !a.isLoopbackAddress()) {
-                        raw.add(name + " = " + a.getHostAddress());
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network[] networks = cm.getAllNetworks();
+                for (Network network : networks) {
+                    LinkProperties lp = cm.getLinkProperties(network);
+                    if (lp != null) {
+                        String name = lp.getInterfaceName();
+                        if (name != null) {
+                            if (name.startsWith("tun") || name.startsWith("tap") || name.startsWith("ppp")
+                                    || name.contains("wg")) {
+                                tun.add(name);
+                            }
+                            for (LinkAddress addr : lp.getLinkAddresses()) {
+                                InetAddress a = addr.getAddress();
+                                if (a instanceof Inet4Address && !a.isLoopbackAddress()) {
+                                    raw.add(name + " = " + a.getHostAddress());
+                                }
+                            }
+                        }
                     }
                 }
             }
