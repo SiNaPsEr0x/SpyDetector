@@ -100,30 +100,30 @@ public class MainActivity extends Activity implements Engine.Listener {
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
 
-        TextView logo = Ui.text(this, "SPY", 30f, Ui.CYAN, Ui.BLACK);
+        TextView logo = Ui.textS(this, "SPY", 30f, Ui.CYAN, Ui.BLACK);
         logo.setLetterSpacing(0.05f);
         LinearLayout logoRow = new LinearLayout(this);
         logoRow.setOrientation(LinearLayout.HORIZONTAL);
         logoRow.addView(logo);
-        TextView dot = Ui.text(this, "·", 30f, Ui.OK, Ui.BLACK);
+        TextView dot = Ui.textS(this, "·", 30f, Ui.OK, Ui.BLACK);
         logoRow.addView(dot);
-        TextView rest = Ui.text(this, "DETECTOR", 30f, Ui.TXT, Ui.BLACK);
+        TextView rest = Ui.textS(this, "DETECTOR", 30f, Ui.TXT, Ui.BLACK);
         rest.setLetterSpacing(0.05f);
         logoRow.addView(rest);
         titleBox.addView(logoRow);
 
-        TextView tag = Ui.label(this, getString(R.string.tagline));
+        TextView tag = Ui.labelS(this, getString(R.string.tagline));
         tag.setPadding(0, Ui.dp(this, 6), 0, 0);
         titleBox.addView(tag);
 
         // credito creatore: piccolo e discreto, sotto la tagline
-        TextView credit = Ui.text(this, getString(R.string.credit), 9f, Ui.DIM, Ui.SANS);
+        TextView credit = Ui.textS(this, getString(R.string.credit), 9.5f, Ui.DIM, Ui.SANS);
         credit.setPadding(0, Ui.dp(this, 2), 0, 0);
         titleBox.addView(credit);
         head.addView(titleBox, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView version = Ui.chip(this, "v" + BuildConfig.VERSION_NAME, Ui.CYAN);
+        TextView version = Ui.chipS(this, "v" + BuildConfig.VERSION_NAME, Ui.CYAN);
         head.addView(version);
         col.addView(head);
 
@@ -141,8 +141,8 @@ public class MainActivity extends Activity implements Engine.Listener {
         col.addView(Ui.vspace(this, 14));
 
         // --- stato corrente -----------------------------------------------
-        statusLabel = Ui.label(this, "STATO");
-        statusValue = Ui.text(this, "IN ATTESA", 13f, Ui.TXT, Ui.MONO);
+        statusLabel = Ui.labelS(this, "STATO");
+        statusValue = Ui.textS(this, "IN ATTESA", 13f, Ui.TXT, Ui.MONO);
         LinearLayout statusBox = new LinearLayout(this);
         statusBox.setOrientation(LinearLayout.VERTICAL);
         statusBox.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -163,7 +163,7 @@ public class MainActivity extends Activity implements Engine.Listener {
         col.addView(Ui.vspace(this, 20));
 
         // --- pulsanti ------------------------------------------------------
-        scanBtn = Ui.button(this, "AVVIA SCANSIONE COMPLETA", Ui.CYAN, true);
+        scanBtn = Ui.buttonS(this, "AVVIA SCANSIONE COMPLETA", Ui.CYAN, true);
         scanBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { if (!running) startScan(); }
         });
@@ -176,7 +176,7 @@ public class MainActivity extends Activity implements Engine.Listener {
         LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, Ui.dp(this, 48), 1f);
         half.rightMargin = Ui.dp(this, 6);
 
-        detailsBtn = Ui.button(this, "DETTAGLI", Ui.OK, false);
+        detailsBtn = Ui.buttonS(this, "DETTAGLI", Ui.OK, false);
         detailsBtn.setEnabled(false);
         detailsBtn.setAlpha(0.45f);
         detailsBtn.setOnClickListener(new View.OnClickListener() {
@@ -184,7 +184,7 @@ public class MainActivity extends Activity implements Engine.Listener {
         });
         btnRow.addView(detailsBtn, half);
 
-        shareBtn = Ui.button(this, "CONDIVIDI", Ui.TXT, false);
+        shareBtn = Ui.buttonS(this, "CONDIVIDI", Ui.TXT, false);
         shareBtn.setAlpha(0.45f);
         shareBtn.setEnabled(false);
         shareBtn.setOnClickListener(new View.OnClickListener() {
@@ -201,7 +201,7 @@ public class MainActivity extends Activity implements Engine.Listener {
 
         LinearLayout btnRow2 = new LinearLayout(this);
         btnRow2.setOrientation(LinearLayout.HORIZONTAL);
-        exportJsonBtn = Ui.button(this, "ESPORTA JSON", Ui.TXT, false);
+        exportJsonBtn = Ui.buttonS(this, "ESPORTA JSON", Ui.TXT, false);
         exportJsonBtn.setAlpha(0.45f);
         exportJsonBtn.setEnabled(false);
         exportJsonBtn.setOnClickListener(new View.OnClickListener() {
@@ -232,13 +232,13 @@ public class MainActivity extends Activity implements Engine.Listener {
         LinearLayout logHead = new LinearLayout(this);
         logHead.setOrientation(LinearLayout.HORIZONTAL);
         logHead.setGravity(Gravity.CENTER_VERTICAL);
-        logHead.addView(Ui.label(this, "LIVE SCAN LOG"));
+        logHead.addView(Ui.labelS(this, "LIVE SCAN LOG"));
         View spacer = new View(this);
         logHead.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
-        logHead.addView(Ui.chip(this, "ON-DEVICE", Ui.OK));
+        logHead.addView(Ui.chipS(this, "ON-DEVICE", Ui.OK));
         logBox.addView(logHead);
 
-        liveLog = Ui.text(this, "> in attesa di comandi…", 11.5f, 0xFF7CF7D0, Ui.MONO);
+        liveLog = Ui.textS(this, "> in attesa di comandi…", 11.5f, 0xFF7CF7D0, Ui.MONO);
         liveLog.setLineSpacing(Ui.dp(this, 3), 1f);
         liveLog.setPadding(0, Ui.dp(this, 10), 0, 0);
         logBox.addView(liveLog);
@@ -249,9 +249,9 @@ public class MainActivity extends Activity implements Engine.Listener {
         LinearLayout catHead = new LinearLayout(this);
         catHead.setGravity(Gravity.CENTER_VERTICAL);
         catHead.setOrientation(LinearLayout.HORIZONTAL);
-        catHead.addView(Ui.label(this, "AREE ANALIZZATE"));
+        catHead.addView(Ui.labelS(this, "AREE ANALIZZATE"));
         catHead.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        catHead.addView(Ui.label(this, "TOCCA PER DETTAGLI"));
+        catHead.addView(Ui.labelS(this, "TOCCA PER DETTAGLI"));
         col.addView(catHead);
         col.addView(Ui.vspace(this, 10));
 
@@ -261,7 +261,7 @@ public class MainActivity extends Activity implements Engine.Listener {
 
         col.addView(Ui.vspace(this, 26));
 
-        TextView foot = Ui.text(this,
+        TextView foot = Ui.textS(this,
                 "Analisi 100% locale: SpyDetector non ha il permesso INTERNET e non invia "
                 + "nessun dato. I risultati sono indicatori tecnici, non prove legali.",
                 10.5f, 0xFF56687D, Ui.SANS);
@@ -384,10 +384,10 @@ public class MainActivity extends Activity implements Engine.Listener {
         card.setBackground(Ui.box(0xCC0A1322, Ui.alpha(color, 90), Math.max(1, Ui.dp(this, 1)),
                 Ui.dp(this, 10)));
 
-        TextView v = Ui.text(this, String.valueOf(value), 22f, color, Ui.BLACK);
+        TextView v = Ui.textS(this, String.valueOf(value), 22f, color, Ui.BLACK);
         v.setGravity(Gravity.CENTER);
         card.addView(v);
-        TextView l = Ui.text(this, label, 9f, Ui.DIM, Ui.MONO);
+        TextView l = Ui.textS(this, label, 9f, Ui.DIM, Ui.MONO);
         l.setLetterSpacing(0.1f);
         l.setGravity(Gravity.CENTER);
         l.setPadding(0, Ui.dp(this, 4), 0, 0);
@@ -407,9 +407,9 @@ public class MainActivity extends Activity implements Engine.Listener {
         box.setBackground(Ui.box(0xCC0A1322, Ui.alpha(color, 120), Math.max(1, Ui.dp(this, 1)),
                 Ui.dp(this, 12)));
 
-        TextView h = Ui.label(this, "VERDETTO");
+        TextView h = Ui.labelS(this, "VERDETTO");
         box.addView(h);
-        TextView v = Ui.text(this, r.verdict(), 20f, color, Ui.BLACK);
+        TextView v = Ui.textS(this, r.verdict(), 20f, color, Ui.BLACK);
         v.setPadding(0, Ui.dp(this, 6), 0, 0);
         box.addView(v);
 
@@ -418,7 +418,7 @@ public class MainActivity extends Activity implements Engine.Listener {
             if (e.getKey().startsWith("~")) continue;
             sb.append(e.getKey()).append(": ").append(e.getValue()).append('\n');
         }
-        TextView d = Ui.text(this, sb.toString().trim(), 11f, 0xFF9FB3C8, Ui.MONO);
+        TextView d = Ui.textS(this, sb.toString().trim(), 11f, 0xFF9FB3C8, Ui.MONO);
         d.setLineSpacing(Ui.dp(this, 3), 1f);
         d.setPadding(0, Ui.dp(this, 10), 0, 0);
         box.addView(d);
@@ -456,14 +456,14 @@ public class MainActivity extends Activity implements Engine.Listener {
             LinearLayout text = new LinearLayout(this);
             text.setOrientation(LinearLayout.VERTICAL);
             text.setPadding(Ui.dp(this, 12), 0, 0, 0);
-            text.addView(Ui.text(this, cat.toUpperCase(), 13f, Ui.TXT, Ui.MONO_B));
+            text.addView(Ui.textS(this, cat.toUpperCase(), 13f, Ui.TXT, Ui.MONO_B));
             String sub = problems == 0 ? "nessuna anomalia"
                     : problems + (problems == 1 ? " punto da verificare" : " punti da verificare");
-            text.addView(Ui.text(this, sub, 11f, Ui.DIM, Ui.SANS));
+            text.addView(Ui.textS(this, sub, 11f, Ui.DIM, Ui.SANS));
             card.addView(text, new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-            card.addView(Ui.chip(this, String.valueOf(problems), problems == 0 ? Ui.OK : color));
+            card.addView(Ui.chipS(this, String.valueOf(problems), problems == 0 ? Ui.OK : color));
             card.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { openDetails(catFinal); }
             });

@@ -152,4 +152,91 @@ public final class Ui {
     public static int alpha(int color, int a) {
         return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color));
     }
+
+    // ---------------------------------------------------------------- font scaling
+
+    /** Larghezza di riferimento in dp per il scaling dei font. */
+    private static final int REF_WIDTH_DP = 360;
+
+    /**
+     * Calcola il fattore di scaling dei font basato sulla larghezza dello
+     * schermo. Schermo piccolo → font più piccolo, schermo grande → font più
+     * grande. La scala è clampata tra 0.85 e 1.4 per evitare estremi.
+     */
+    public static float fontScale(Context c) {
+        float w = c.getResources().getDisplayMetrics().widthPixels
+                / c.getResources().getDisplayMetrics().density;
+        float scale = w / REF_WIDTH_DP;
+        return Math.max(0.85f, Math.min(1.4f, scale));
+    }
+
+    /**
+     * Converte un valore SP base in un valore SP scalato per lo schermo
+     * attuale. Usa `Ui.sp(c, 14f)` invece di `14f` direttamente.
+     */
+    public static float sp(Context c, float base) {
+        return base * fontScale(c);
+    }
+
+    /**
+     * TextView con testo scalato dinamicamente. Sostituisce Ui.text(c, s, size, ...).
+     */
+    public static TextView textS(Context c, String s, float baseSize, int color, Typeface tf) {
+        return text(c, s, sp(c, baseSize), color, tf);
+    }
+
+    /**
+     * Label con testo scalato dinamicamente.
+     */
+    public static TextView labelS(Context c, String s) {
+        TextView t = textS(c, s, 10f, DIM, MONO);
+        t.setLetterSpacing(0.18f);
+        return t;
+    }
+
+    /**
+     * Chip con testo scalato dinamicamente.
+     */
+    public static TextView chipS(Context c, String s, int color) {
+        TextView t = textS(c, s, 10.5f, color, MONO_B);
+        t.setLetterSpacing(0.08f);
+        t.setPadding(dp(c, 9), dp(c, 5), dp(c, 9), dp(c, 5));
+        t.setBackground(box(0x1AFFFFFF, color, Math.max(1, dp(c, 1)), dp(c, 20)));
+        return t;
+    }
+
+    /**
+     * Pulsante "HUD" con testo scalato dinamicamente.
+     */
+    public static TextView buttonS(Context c, String s, int accent, boolean filled) {
+        TextView t = textS(c, s, 14f, filled ? BG : accent, MONO_B);
+        t.setLetterSpacing(0.12f);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(c, 18), dp(c, 15), dp(c, 18), dp(c, 15));
+        GradientDrawable base = box(filled ? accent : 0x00000000, accent,
+                Math.max(1, dp(c, 1)), dp(c, 4));
+        ColorStateList rip = ColorStateList.valueOf(0x40FFFFFF);
+        t.setBackground(new RippleDrawable(rip, base, null));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
+
+    /**
+     * Pulsante compatto (per elenchi/schede detail). Testo più piccolo,
+     * padding ridotto, stessa grafica HUD.
+     */
+    public static TextView buttonCompact(Context c, String s, int accent) {
+        TextView t = textS(c, s, 12f, accent, MONO_B);
+        t.setLetterSpacing(0.1f);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(c, 14), dp(c, 10), dp(c, 14), dp(c, 10));
+        GradientDrawable base = box(0x00000000, accent,
+                Math.max(1, dp(c, 1)), dp(c, 4));
+        ColorStateList rip = ColorStateList.valueOf(0x40FFFFFF);
+        t.setBackground(new RippleDrawable(rip, base, null));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
 }

@@ -51,7 +51,7 @@ public class DetailActivity extends Activity {
         Ui.applyInsets(root, col);
         setContentView(root);
 
-        TextView back = Ui.text(this, "‹ INDIETRO", 12f, Ui.CYAN, Ui.MONO_B);
+        TextView back = Ui.textS(this, "‹ INDIETRO", 12f, Ui.CYAN, Ui.MONO_B);
         back.setPadding(0, 0, 0, Ui.dp(this, 16));
         back.setClickable(true);
         back.setOnClickListener(new View.OnClickListener() {
@@ -59,12 +59,12 @@ public class DetailActivity extends Activity {
         });
         col.addView(back);
 
-        TextView t = Ui.text(this, category == null ? "TUTTI I RISULTATI" : category.toUpperCase(),
+        TextView t = Ui.textS(this, category == null ? "TUTTI I RISULTATI" : category.toUpperCase(),
                 24f, Ui.TXT, Ui.BLACK);
         t.setLetterSpacing(0.03f);
         col.addView(t);
         col.addView(Ui.vspace(this, 6));
-        col.addView(Ui.label(this, "SPYDETECTOR // REPORT"));
+        col.addView(Ui.labelS(this, "SPYDETECTOR // REPORT"));
         col.addView(Ui.vspace(this, 18));
 
         list = new LinearLayout(this);
@@ -79,7 +79,7 @@ public class DetailActivity extends Activity {
         list.removeAllViews();
         Report r = ReportHolder.get();
         if (r == null) {
-            list.addView(Ui.text(this, "Nessun risultato disponibile. Avvia una scansione.",
+            list.addView(Ui.textS(this, "Nessun risultato disponibile. Avvia una scansione.",
                     13f, Ui.DIM, Ui.SANS));
             return;
         }
@@ -97,7 +97,7 @@ public class DetailActivity extends Activity {
         });
 
         if (items.isEmpty()) {
-            list.addView(Ui.text(this, "Nessun controllo in questa categoria.",
+            list.addView(Ui.textS(this, "Nessun controllo in questa categoria.",
                     13f, Ui.DIM, Ui.SANS));
             return;
         }
@@ -108,7 +108,7 @@ public class DetailActivity extends Activity {
         }
 
         list.addView(Ui.vspace(this, 14));
-        TextView note = Ui.text(this,
+        TextView note = Ui.textS(this,
                 "SpyDetector rileva indicatori tecnici (permessi, servizi attivi, pacchetti noti). "
                 + "Non e' un antivirus e non puo' garantire l'assenza di software malevolo: "
                 + "in caso di dubbio fai un reset ai dati di fabbrica e cambia le password.",
@@ -128,8 +128,8 @@ public class DetailActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.TOP);
-        head.addView(Ui.chip(this, f.severity.label(), color));
-        TextView title = Ui.text(this, f.title, 13.5f,
+        head.addView(Ui.chipS(this, f.severity.label(), color));
+        TextView title = Ui.textS(this, f.title, 13.5f,
                 f.severity == Severity.OK ? 0xFFB9C7D6 : Ui.TXT, Ui.SANS_B);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -137,7 +137,7 @@ public class DetailActivity extends Activity {
         head.addView(title, tlp);
         card.addView(head);
 
-        TextView ev = Ui.text(this, f.evidence, 11f, 0xFF9FB3C8, Ui.MONO);
+        TextView ev = Ui.textS(this, f.evidence, 11f, 0xFF9FB3C8, Ui.MONO);
         ev.setPadding(0, Ui.dp(this, 9), 0, 0);
         ev.setLineSpacing(Ui.dp(this, 2), 1f);
         card.addView(ev);
@@ -147,11 +147,16 @@ public class DetailActivity extends Activity {
         if (pkg != null && !pkg.isEmpty() && !pkg.equals(getPackageName())) {
             LinearLayout actions = new LinearLayout(this);
             actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.setPadding(0, Ui.dp(this, 8), 0, 0);
+            actions.setGravity(Gravity.CENTER_VERTICAL);
+            actions.setPadding(0, Ui.dp(this, 10), 0, 0);
+            // consuma i click su quest'area per impedire il toggle della card
+            actions.setClickable(true);
+            actions.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { /* no-op: consuma */ }
+            });
 
-            // pulsante DISINSTALLA
-            TextView uninstallBtn = Ui.button(this, "DISINSTALLA", Ui.CRIT, false);
-            uninstallBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            // pulsante DISINSTALLA — larghezza uguale a APERTI
+            TextView uninstallBtn = Ui.buttonCompact(this, "DISINSTALLA", Ui.CRIT);
             uninstallBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     Intent di = new Intent("android.intent.action.DELETE_PACKAGE");
@@ -159,24 +164,25 @@ public class DetailActivity extends Activity {
                     startActivity(di);
                 }
             });
-            actions.addView(uninstallBtn, new LinearLayout.LayoutParams(0,
-                    Ui.dp(this, 42), 1f));
+            LinearLayout.LayoutParams blp1 = new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 44), 1f);
+            blp1.rightMargin = Ui.dp(this, 3);
+            actions.addView(uninstallBtn, blp1);
 
-            // pulsante APERTI (apri nelle impostazioni dell'app, non lanciare l'app)
-            TextView openBtn = Ui.button(this, "APERTI", Ui.CYAN, false);
-            openBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            // pulsante APERTI — apre Impostazioni > App > [app] (non lancia l'app)
+            TextView openBtn = Ui.buttonCompact(this, "APERTI", Ui.CYAN);
             openBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    // Apre Impostazioni > App > [app] invece di lanciare l'app sospetta
-                    Intent settings = new Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS);
+                    Intent settings = new Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                     settings.setData(Uri.parse("package:" + pkg));
                     startActivity(settings);
                 }
             });
-            LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(0,
-                    Ui.dp(this, 42), 1f);
-            olp.leftMargin = Ui.dp(this, 6);
-            actions.addView(openBtn, olp);
+            LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 44), 1f);
+            blp2.leftMargin = Ui.dp(this, 3);
+            actions.addView(openBtn, blp2);
 
             card.addView(actions);
         }
@@ -186,17 +192,17 @@ public class DetailActivity extends Activity {
         more.setVisibility(expanded.contains(f.checkId) ? View.VISIBLE : View.GONE);
 
         if (!f.advice.isEmpty()) {
-            TextView adv = Ui.text(this, "▸ " + f.advice, 11.5f, 0xFFD9E9F7, Ui.SANS);
+            TextView adv = Ui.textS(this, "▸ " + f.advice, 11.5f, 0xFFD9E9F7, Ui.SANS);
             adv.setLineSpacing(Ui.dp(this, 3), 1f);
             adv.setPadding(0, Ui.dp(this, 10), 0, 0);
             more.addView(adv);
         }
         for (Map.Entry<String, String> e : f.details.entrySet()) {
-            TextView d = Ui.text(this, e.getKey() + ": " + e.getValue(), 10.5f, Ui.DIM, Ui.MONO);
+            TextView d = Ui.textS(this, e.getKey() + ": " + e.getValue(), 10.5f, Ui.DIM, Ui.MONO);
             d.setPadding(0, Ui.dp(this, 6), 0, 0);
             more.addView(d);
         }
-        TextView id = Ui.text(this, "check: " + f.checkId + " · area: " + f.category,
+        TextView id = Ui.textS(this, "check: " + f.checkId + " · area: " + f.category,
                 9.5f, 0xFF4E6076, Ui.MONO);
         id.setPadding(0, Ui.dp(this, 8), 0, 0);
         more.addView(id);
