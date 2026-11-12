@@ -94,7 +94,7 @@ jobs:
         run: |
           JAVA=.toolchain/jdk/bin/java
           [ -x "$JAVA" ] || JAVA=java
-          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk \
+          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk\
             | tee build/apksigner-verify.txt
 
       - name: SBOM (SPDX) dell'APK
@@ -126,7 +126,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release list --limit 100 --json tagName,isLatest \
+          gh release list --limit 100 --json tagName,isLatest\
             --jq '.[] | select(.isLatest|not) | .tagName' | while read -r OLD; do
               [ -z "$OLD" ] && continue
               echo "elimino release vecchia: $OLD"

@@ -46,7 +46,6 @@ public class MainActivity extends Activity implements Engine.Listener {
     private TextView detailsBtn;
     private TextView shareBtn;
     private TextView exportJsonBtn;
-    private TextView updateBtn;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String> logLines = new ArrayList<>();
@@ -66,6 +65,10 @@ public class MainActivity extends Activity implements Engine.Listener {
                 @Override public void run() { startScan(); }
             }, 550);
         }
+        // Aggiornamenti automatici: DB firme + check app — esegue in background
+        ui.postDelayed(new Runnable() {
+            @Override public void run() { checkUpdates(); }
+        }, 1000);
     }
 
     // ------------------------------------------------------------------ UI --
@@ -211,17 +214,6 @@ public class MainActivity extends Activity implements Engine.Listener {
         btnRow2Lp.topMargin = Ui.dp(this, 10);
         btnRow2.setLayoutParams(btnRow2Lp);
         col.addView(btnRow2);
-
-        // --- pulsante aggiornamento ------------------------------------------
-        updateBtn = Ui.button(this, "AGGIORNA DB FIRME + APP", Ui.OK, false);
-        updateBtn.setAlpha(0.7f);
-        updateBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { checkUpdates(); }
-        });
-        LinearLayout.LayoutParams updateLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 48));
-        updateLp.topMargin = Ui.dp(this, 10);
-        col.addView(updateBtn, updateLp);
 
         col.addView(Ui.vspace(this, 24));
 
@@ -492,10 +484,6 @@ public class MainActivity extends Activity implements Engine.Listener {
 
     // ------------------------------------------------------------- update --
     private void checkUpdates() {
-        if (updateBtn != null) {
-            updateBtn.setText("CONTROLLO IN CORSO…");
-            updateBtn.setAlpha(0.5f);
-        }
         appendLog("> controllo aggiornamenti…");
 
         // parte separata: download DB firme + check aggiornamento app
@@ -519,16 +507,10 @@ public class MainActivity extends Activity implements Engine.Listener {
                             appendLog(">  nuova versione disponibile!");
                             statusValue.setText("NUOVA VERSIONE DISPONIBLE");
                             statusValue.setTextColor(Ui.CYAN);
-                            // Scarica e propone l'installazione
                             UpdateChecker.downloadAndProposeInstall(
                                 MainActivity.this, newApkUrl);
                         } else {
                             appendLog(">  app: già alla versione più recente");
-                        }
-
-                        if (updateBtn != null) {
-                            updateBtn.setText("AGGIORNA DB FIRME + APP");
-                            updateBtn.setAlpha(0.7f);
                         }
                     }
                 });
