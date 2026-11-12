@@ -69,20 +69,14 @@ jobs:
           ./build.sh
           python3 scripts/verify-apk.py dist/*.apk
 
-      - name: Vulnerabilita' dipendenze + file (OSV / Trivy)
+      - name: Vulnerabilita' dipendenze + file (Trivy)
         continue-on-error: true
         run: |
-          pip install -q --disable-pip-version-check osv-scanner 2>/dev/null || true
-          curl -sSL -o trivy.tgz \
+          curl -sSL -o trivy.tgz\
             https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz
           tar xzf trivy.tgz trivy || true
-          ./trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH \
+          ./trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH\
             --format table --exit-code 0 . | tee trivy-report.txt || true
-          python3 - <<'PY' | tee osv-report.txt || true
-          import glob, json, subprocess
-          files = glob.glob(".github/workflows/*.yml") + ["scripts/requirements.txt"]
-          print("file analizzati:", files)
-          PY
 
       - name: Riepilogo
         if: always()
@@ -141,4 +135,5 @@ jobs:
             tools/toolchain.env
             app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
             data/threat-seed.txt
+            data/official-signatures.txt
             docs/security/

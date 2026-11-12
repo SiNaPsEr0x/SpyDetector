@@ -17,8 +17,8 @@ import java.util.Locale;
  * Controlla aggiornamenti remoto:
  *
  * 1) Scarica il database aggiornato delle firme ufficiali da GitHub e lo
- *    applica a ThreatDb (pkg -> SHA-256). Questo permette di识别app ufficiali
- *    senza ricompilare l'APK.
+ *    applica a ThreatDb (pkg -> SHA-256). Questo permette di riconoscere
+ *    app ufficiali senza ricompilare l'APK.
  *
  * 2) Verifica la presenza di una nuova versione dell'app su GitHub Releases.
  *    Se trova un APK piu' recente, lo scarica e propone l'installazione.
@@ -69,20 +69,15 @@ public final class UpdateChecker {
         String json = httpGet(RELEASES_API_URL);
         if (json == null || json.isEmpty()) return null;
 
-        // Estrai tag_name e assets[].browser_download_url
         String tagName = extractJsonString(json, "tag_name");
         if (tagName == null || tagName.isEmpty()) return null;
 
-        // Normalizza: tieni solo la parte numerica (es. "v0.0.3" -> "0.0.3")
         String remoteVersion = tagName.replaceAll("^[^0-9]*", "");
         if (remoteVersion.isEmpty()) return null;
 
-        // Confronta versioni: se remota > locale, c'e' aggiornamento
         if (compareVersions(remoteVersion, currentVersion) <= 0) return null;
 
-        // Estrai l'URL dell'APK dal JSON
-        String apkUrl = extractApkUrl(json);
-        return apkUrl != null ? apkUrl : null;
+        return extractApkUrl(json);
     }
 
     /**
@@ -92,25 +87,21 @@ public final class UpdateChecker {
         if (apkUrl == null || apkUrl.isEmpty()) return;
         final Context appCtx = ctx.getApplicationContext();
 
-        // Estrai nome file dall'URL
         String path = apkUrl.substring(apkUrl.lastIndexOf('/') + 1);
         if (path.contains("?")) path = path.substring(0, path.indexOf('?'));
         String fileName = path.endsWith(".apk") ? path : "SpyDetector-update.apk";
 
-        // Scarica con DownloadManager in cache
         DownloadManager.Request req = new DownloadManager.Request(Uri.parse(apkUrl));
         req.setDestinationUri(Uri.parse("file://" + appCtx.getCacheDir() + "/" + fileName));
         req.setMimeType("application/vnd.android.package-archive");
 
         DownloadManager dm = (DownloadManager) appCtx.getSystemService(Context.DOWNLOAD_SERVICE);
-        long id = dm.enqueue(req);
+        dm.enqueue(req);
 
         // Attendi il completamento e propone l'installazione
-        final long downloadId = id;
         final String fname = fileName;
         new Thread(new Runnable() {
             @Override public void run() {
-                // Aspetta che il download finisca (max 5 min)
                 long start = System.currentTimeMillis();
                 while (System.currentTimeMillis() - start < 300000) {
                     java.io.File f = new java.io.File(appCtx.getCacheDir(), fname);
@@ -120,21 +111,19 @@ public final class UpdateChecker {
                 java.io.File apk = new java.io.File(appCtx.getCacheDir(), fname);
                 if (!apk.exists() || apk.length() == 0) return;
 
-                // Propoi l'installazione (Android 7+ richiede FileProvider;
-                // usiamo ACTION_VIEW con file:// per API <24, ContentProvider
-                // per API >=24 — ma senza androidx usiamo ACTION_INSTALL_PACKAGE
-                // con il file relativo)
+                // Su Android 7+ (API 24+) file:// non e' consentito:
+                // usa il ContentProvider interno
+                Uri apkUri = Uri.parse("content://" + appCtx.getPackageName()
+                        + ".fileprovider/" + apk.getName());
                 Intent install = new Intent(Intent.ACTION_VIEW);
-                install.setDataAndType(Uri.fromFile(apk),
-                        "application/vnd.android.package-archive");
+                install.setDataAndType(apkUri, "application/vnd.android.package-archive");
                 install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
                     appCtx.startActivity(install);
                 } catch (Throwable t) {
-                    // fallback: apri il file manager
                     Intent view = new Intent(Intent.ACTION_VIEW);
-                    view.setDataAndType(Uri.fromFile(apk), "*/*");
+                    view.setDataAndType(apkUri, "*/*");
                     view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     try { appCtx.startActivity(view); } catch (Throwable ignored) {}
                 }
@@ -176,7 +165,6 @@ public final class UpdateChecker {
         }
     }
 
-    /** Estrai il valore di una chiave JSON simple string. */
     private static String extractJsonString(String json, String key) {
         String search = "\"" + key + "\"";
         int idx = json.indexOf(search);
@@ -190,7 +178,6 @@ public final class UpdateChecker {
         return json.substring(start + 1, end);
     }
 
-    /** Estrai l'URL di download dell'APK dal JSON di GitHub Releases. */
     private static String extractApkUrl(String json) {
         int assetsIdx = json.indexOf("\"assets\"");
         if (assetsIdx < 0) return null;
@@ -201,16 +188,10 @@ public final class UpdateChecker {
         int end = json.indexOf('"', start + 1);
         if (start < 0 || end < 0) return null;
         String url = json.substring(start + 1, end);
-        // Preferisci l'APK di release
         if (url.endsWith(".apk") && url.contains("release")) return url;
-        // Altrimenti la prima .apk trovata
         return url.endsWith(".apk") ? url : null;
     }
 
-    /**
-     * Confronta due stringhe di versione (segmentata da '.').
-     * Torna >0 se a>b, <0 se a<b, 0 se uguali.
-     */
     private static int compareVersions(String a, String b) {
         String[] pa = a.split("\\.");
         String[] pb = b.split("\\.");

@@ -21,7 +21,7 @@ jobs:
     name: Semgrep (java, python, bash, actions)
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep:latest
+      image: semgrep/semgrep:1.131.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -31,13 +31,13 @@ jobs:
 
       - name: Semgrep scan
         run: |
-          semgrep scan \
-            --config p/security-audit \
-            --config p/java \
-            --config p/shell \
-            --sarif --output semgrep.sarif \
-            --metrics=off --disable-version-check \
-            --exclude .toolchain --exclude dist --exclude build \
+          semgrep scan\
+            --config p/security-audit\
+            --config p/java\
+            --config p/shell\
+            --sarif --output semgrep.sarif\
+            --metrics=off --disable-version-check\
+            --exclude .toolchain --exclude dist --exclude build\
             || true
           python3 - <<'PY'
           import json
