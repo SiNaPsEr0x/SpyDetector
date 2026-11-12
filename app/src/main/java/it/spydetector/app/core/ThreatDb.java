@@ -151,6 +151,69 @@ public final class ThreatDb {
     }
 
     /**
+     * Firme ufficiali di app popolari: pacchetto -> SHA-256 del certificato
+     * di firma ufficiale. Se un'app installata ha una firma che corrisponde,
+     * e' l'app genuina e non deve essere segnalata come warning.
+     *
+     * Le firme sono pubbliche e stabili: un'app che cambia il certificato
+     * di firma (raro) apparirebbe come "firma non ufficiale" finche' non
+     * si aggiorna questa tabella. Le firme vengono verificate da APKMirror
+     * e fonti ufficiali.
+     *
+     * Questa tabella viene anche scaricata aggiornata da GitHub (vedi
+     * UpdateChecker): il database remoto puo' aggiungere firme nuove.
+     */
+    private static final Map<String, String> OFFICIAL_SIGNATURES = new HashMap<>();
+    static {
+        // WhatsApp — certificato ufficiale (CN=Brian Acton, O=WhatsApp Inc.)
+        // Verificato su APKMirror per versioni 2.18.71 - 2.25.33.71 (2018-2025).
+        OFFICIAL_SIGNATURES.put("com.whatsapp",
+            "3987d043d10aefaf5a8710b3671418fe57e0e19b653c9df82558feb5ffce5d44");
+        // WhatsApp Business — stesso certificato di WhatsApp
+        OFFICIAL_SIGNATURES.put("com.whatsapp.w4b",
+            "3987d043d10aefaf5a8710b3671418fe57e0e19b653c9df82558feb5ffce5d44");
+        // Instagram — certificato ufficiale (CN=Kevin Systrom, O=Instagram Inc.)
+        // Verificato su APKMirror / privacyguides/verified-apps.
+        OFFICIAL_SIGNATURES.put("com.instagram.android",
+            "5f3e50f435583c9ae626302a71f7340044087a7e2c60adacfc254205a993e305");
+        OFFICIAL_SIGNATURES.put("com.instagram.lite",
+            "5f3e50f435583c9ae626302a71f7340044087a7e2c60adacfc254205a993e305");
+        // Telegram — certificato ufficiale (Telegram FZ-LLC)
+        // Verificato su APKPure/APKMirror.
+        OFFICIAL_SIGNATURES.put("org.telegram.messenger",
+            "637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5");
+        OFFICIAL_SIGNATURES.put("org.telegram.messenger.web",
+            "637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5");
+        OFFICIAL_SIGNATURES.put("org.thunderdog.challegram",
+            "637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5");
+        // Snapchat — certificato ufficiale (CN=Daniel Smith, Snap Inc.)
+        // Verificato su APKMirror.
+        OFFICIAL_SIGNATURES.put("com.snapchat.android",
+            "2f1caafca1ed30d0b4e38863eefabea0e815711fa4cf79b822519a8259d95a58");
+    }
+
+    /** True se la firma dell'app corrisponde a quella ufficiale nota. */
+    public static boolean isOfficialSignature(Context ctx, String pkg) {
+        String official = OFFICIAL_SIGNATURES.get(pkg);
+        if (official == null || official.isEmpty()) return false;
+        String actual = certSha256(ctx, pkg);
+        return !actual.isEmpty() && actual.equalsIgnoreCase(official);
+    }
+
+    /** La firma ufficiale nota per un pacchetto, o "" se nessuna. */
+    public static String officialSignature(String pkg) {
+        return OFFICIAL_SIGNATURES.getOrDefault(pkg, "");
+    }
+
+    /** Aggiunge firme ufficiali da un database remoto (formato: pkg=hash). */
+    public static void addOfficialSignature(String pkg, String sha256) {
+        if (pkg != null && sha256 != null && !pkg.isEmpty()
+                && sha256.matches("[0-9a-fA-F]{64}")) {
+            OFFICIAL_SIGNATURES.put(pkg.trim(), sha256.trim().toLowerCase(Locale.ROOT));
+        }
+    }
+
+    /**
      * SHA-256 del primo certificato di firma dell'app, o "" se non leggibile.
      * Si usa GET_SIGNING_CERTIFICATES su API 28+, GET_SIGNATURES sulle versioni
      * precedenti. Niente permesso extra serve: le firme sono leggibili da qualsiasi

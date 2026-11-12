@@ -6,6 +6,7 @@ import it.spydetector.app.core.Finding;
 import it.spydetector.app.core.InstalledApps;
 import it.spydetector.app.core.ScanData;
 import it.spydetector.app.core.Severity;
+import it.spydetector.app.core.ThreatDb;
 import it.spydetector.app.util.Sys;
 
 import java.util.ArrayList;
@@ -47,6 +48,9 @@ public class UnknownSideloadCheck implements Check {
             boolean fromStore = STORE_INSTALLERS.contains(app.installer);
             if (fromStore) continue;
             if (app.pkg.equals(data.ctx.getPackageName())) continue;
+
+            // App con firma ufficiale verificata: e' genuina anche se sideloaded
+            if (ThreatDb.isOfficialSignature(data.ctx, app.pkg)) continue;
 
             String p = app.pkg.toLowerCase();
             String l = app.label.toLowerCase();

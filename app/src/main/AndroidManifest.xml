@@ -4,10 +4,12 @@
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
 
-    <!-- Nessun permesso di rete/INTERNET: l'analisi avviene interamente on-device.
-         QUERY_ALL_PACKAGES serve per enumerare le app installate (audit locale). -->
+    <!-- QUERY_ALL_PACKAGES serve per enumerare le app installate (audit locale).
+         INTERNET serve per scaricare il database aggiornato delle firme ufficiali
+         e verificare la presenza di aggiornamenti dell'app stessa. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="@string/app_name"
