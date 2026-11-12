@@ -44,10 +44,13 @@ jobs:
               exit 0
             fi
           fi
-          # piccolo delay per permettere a GitHub di aggiornare lo stato mergeable
+          # piccola pausa per permettere a GitHub di aggiornare lo stato mergeable
           sleep 5
-          gh pr merge "$PR" --squash 2>&1 || {
-            echo "::error::gh pr merge fallito — stato PR:"
+          # usa gh api (non gh pr merge): più robusto e restituisce errori JSON chiari
+          gh api -X PUT "repos/${{ github.repository }}/pulls/$PR/merge" \
+            -f merge_method=squash 2>&1 || {
+            echo "::error::merge fallito — stato PR:"
             gh pr view "$PR" --json state,mergeable,mergeStateStatus 2>&1
             exit 1
           }
+          echo "PR $PR unita con successo (squash)"
