@@ -23,9 +23,10 @@ REQUIRED_DEX_STRINGS = [
     "it/spydetector/app/ui/HudBackground",
     "it/spydetector/app/ui/RiskGauge",
 ]
-FORBIDDEN_PERMISSIONS = ["android.permission.INTERNET", "android.permission.READ_SMS",
+FORBIDDEN_PERMISSIONS = ["android.permission.READ_SMS",
                          "android.permission.RECORD_AUDIO", "android.permission.CAMERA"]
-REQUIRED_PERMISSIONS = ["android.permission.QUERY_ALL_PACKAGES"]
+REQUIRED_PERMISSIONS = ["android.permission.QUERY_ALL_PACKAGES",
+                        "android.permission.INTERNET"]
 
 
 def fail(msg):
