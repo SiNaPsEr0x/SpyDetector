@@ -147,11 +147,16 @@ public class DetailActivity extends Activity {
         if (pkg != null && !pkg.isEmpty() && !pkg.equals(getPackageName())) {
             LinearLayout actions = new LinearLayout(this);
             actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.setPadding(0, Ui.dp(this, 8), 0, 0);
+            actions.setGravity(Gravity.CENTER_VERTICAL);
+            actions.setPadding(0, Ui.dp(this, 10), 0, 0);
+            // consuma i click su quest'area per impedire il toggle della card
+            actions.setClickable(true);
+            actions.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { /* no-op: consuma */ }
+            });
 
-            // pulsante DISINSTALLA
-            TextView uninstallBtn = Ui.buttonS(this, "DISINSTALLA", Ui.CRIT, false);
-            uninstallBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            // pulsante DISINSTALLA — larghezza uguale a APERTI
+            TextView uninstallBtn = Ui.buttonCompact(this, "DISINSTALLA", Ui.CRIT);
             uninstallBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     Intent di = new Intent("android.intent.action.DELETE_PACKAGE");
@@ -159,24 +164,25 @@ public class DetailActivity extends Activity {
                     startActivity(di);
                 }
             });
-            actions.addView(uninstallBtn, new LinearLayout.LayoutParams(0,
-                    Ui.dp(this, 42), 1f));
+            LinearLayout.LayoutParams blp1 = new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 44), 1f);
+            blp1.rightMargin = Ui.dp(this, 3);
+            actions.addView(uninstallBtn, blp1);
 
-            // pulsante APERTI (apri nelle impostazioni dell'app, non lanciare l'app)
-            TextView openBtn = Ui.buttonS(this, "APERTI", Ui.CYAN, false);
-            openBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            // pulsante APERTI — apre Impostazioni > App > [app] (non lancia l'app)
+            TextView openBtn = Ui.buttonCompact(this, "APERTI", Ui.CYAN);
             openBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    // Apre Impostazioni > App > [app] invece di lanciare l'app sospetta
-                    Intent settings = new Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS);
+                    Intent settings = new Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                     settings.setData(Uri.parse("package:" + pkg));
                     startActivity(settings);
                 }
             });
-            LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(0,
-                    Ui.dp(this, 42), 1f);
-            olp.leftMargin = Ui.dp(this, 6);
-            actions.addView(openBtn, olp);
+            LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 44), 1f);
+            blp2.leftMargin = Ui.dp(this, 3);
+            actions.addView(openBtn, blp2);
 
             card.addView(actions);
         }

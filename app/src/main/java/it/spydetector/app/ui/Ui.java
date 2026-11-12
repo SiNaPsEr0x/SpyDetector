@@ -221,4 +221,22 @@ public final class Ui {
         t.setFocusable(true);
         return t;
     }
+
+    /**
+     * Pulsante compatto (per elenchi/schede detail). Testo più piccolo,
+     * padding ridotto, stessa grafica HUD.
+     */
+    public static TextView buttonCompact(Context c, String s, int accent) {
+        TextView t = textS(c, s, 12f, accent, MONO_B);
+        t.setLetterSpacing(0.1f);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(c, 14), dp(c, 10), dp(c, 14), dp(c, 10));
+        GradientDrawable base = box(0x00000000, accent,
+                Math.max(1, dp(c, 1)), dp(c, 4));
+        ColorStateList rip = ColorStateList.valueOf(0x40FFFFFF);
+        t.setBackground(new RippleDrawable(rip, base, null));
+        t.setClickable(true);
+        t.setFocusable(true);
+        return t;
+    }
 }
