@@ -1,6 +1,9 @@
 package it.spydetector.app;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -139,6 +142,45 @@ public class DetailActivity extends Activity {
         ev.setPadding(0, Ui.dp(this, 9), 0, 0);
         ev.setLineSpacing(Ui.dp(this, 2), 1f);
         card.addView(ev);
+
+        // --- bottoni azione se la finding ha un pacchetto ----------------
+        String pkg = f.details.get("Pacchetto");
+        if (pkg != null && !pkg.isEmpty() && !pkg.equals(getPackageName())) {
+            LinearLayout actions = new LinearLayout(this);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setPadding(0, Ui.dp(this, 8), 0, 0);
+
+            // pulsante DISINSTALLA
+            TextView uninstallBtn = Ui.button(this, "DISINSTALLA", Ui.CRIT, false);
+            uninstallBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            uninstallBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    Intent di = new Intent("android.intent.action.DELETE_PACKAGE");
+                    di.setData(Uri.parse("package:" + pkg));
+                    startActivity(di);
+                }
+            });
+            actions.addView(uninstallBtn, new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 42), 1f));
+
+            // pulsante APERTI (apri nelle impostazioni dell'app, non lanciare l'app)
+            TextView openBtn = Ui.button(this, "APERTI", Ui.CYAN, false);
+            openBtn.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            openBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    // Apre Impostazioni > App > [app] invece di lanciare l'app sospetta
+                    Intent settings = new Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS);
+                    settings.setData(Uri.parse("package:" + pkg));
+                    startActivity(settings);
+                }
+            });
+            LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(0,
+                    Ui.dp(this, 42), 1f);
+            olp.leftMargin = Ui.dp(this, 6);
+            actions.addView(openBtn, olp);
+
+            card.addView(actions);
+        }
 
         final LinearLayout more = new LinearLayout(this);
         more.setOrientation(LinearLayout.VERTICAL);

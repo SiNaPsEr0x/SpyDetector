@@ -42,6 +42,11 @@ public class AppPermissionsCheck implements Check {
 
         for (InstalledApps.App app : data.apps.user()) {
             if (app.pkg.equals(data.ctx.getPackageName())) continue;
+
+            // App con firma ufficiale verificata: i permessi sono quelli
+            // normali dell'app ufficiale, non e' un warning.
+            if (ThreatDb.isOfficialSignature(data.ctx, app.pkg)) continue;
+
             Set<String> has = new HashSet<>(Arrays.asList(app.requested));
 
             boolean sms = has.contains("android.permission.READ_SMS")

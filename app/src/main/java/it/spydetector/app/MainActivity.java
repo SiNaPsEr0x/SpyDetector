@@ -18,6 +18,7 @@ import it.spydetector.app.core.Finding;
 import it.spydetector.app.core.Report;
 import it.spydetector.app.core.ReportHolder;
 import it.spydetector.app.core.Severity;
+import it.spydetector.app.core.UpdateChecker;
 import it.spydetector.app.ui.HudBackground;
 import it.spydetector.app.ui.RiskGauge;
 import it.spydetector.app.ui.Ui;
@@ -45,6 +46,7 @@ public class MainActivity extends Activity implements Engine.Listener {
     private TextView detailsBtn;
     private TextView shareBtn;
     private TextView exportJsonBtn;
+    private TextView updateBtn;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String> logLines = new ArrayList<>();
@@ -209,6 +211,17 @@ public class MainActivity extends Activity implements Engine.Listener {
         btnRow2Lp.topMargin = Ui.dp(this, 10);
         btnRow2.setLayoutParams(btnRow2Lp);
         col.addView(btnRow2);
+
+        // --- pulsante aggiornamento ------------------------------------------
+        updateBtn = Ui.button(this, "AGGIORNA DB FIRME + APP", Ui.OK, false);
+        updateBtn.setAlpha(0.7f);
+        updateBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { checkUpdates(); }
+        });
+        LinearLayout.LayoutParams updateLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 48));
+        updateLp.topMargin = Ui.dp(this, 10);
+        col.addView(updateBtn, updateLp);
 
         col.addView(Ui.vspace(this, 24));
 
@@ -475,6 +488,52 @@ public class MainActivity extends Activity implements Engine.Listener {
         Intent i = new Intent(this, DetailActivity.class);
         if (category != null) i.putExtra("category", category);
         startActivity(i);
+    }
+
+    // ------------------------------------------------------------- update --
+    private void checkUpdates() {
+        if (updateBtn != null) {
+            updateBtn.setText("CONTROLLO IN CORSO…");
+            updateBtn.setAlpha(0.5f);
+        }
+        appendLog("> controllo aggiornamenti…");
+
+        // parte separata: download DB firme + check aggiornamento app
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final int sigAdded = UpdateChecker.updateSignatures(MainActivity.this);
+                final String newApkUrl = UpdateChecker.checkForAppUpdate(
+                        MainActivity.this, BuildConfig.VERSION_NAME);
+
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (sigAdded > 0) {
+                            appendLog("> DB firme aggiornato: " + sigAdded + " firme");
+                            statusValue.setText("DB FIRME AGGIORNATO");
+                            statusValue.setTextColor(Ui.OK);
+                        } else {
+                            appendLog("> DB firme: nessun aggiornamento");
+                        }
+
+                        if (newApkUrl != null) {
+                            appendLog(">  nuova versione disponibile!");
+                            statusValue.setText("NUOVA VERSIONE DISPONIBLE");
+                            statusValue.setTextColor(Ui.CYAN);
+                            // Scarica e propone l'installazione
+                            UpdateChecker.downloadAndProposeInstall(
+                                MainActivity.this, newApkUrl);
+                        } else {
+                            appendLog(">  app: già alla versione più recente");
+                        }
+
+                        if (updateBtn != null) {
+                            updateBtn.setText("AGGIORNA DB FIRME + APP");
+                            updateBtn.setAlpha(0.7f);
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private void shareReport() {

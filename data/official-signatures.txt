@@ -1,0 +1,21 @@
+# Firme ufficiali di app popolari: pkg=SHA-256 del certificato di firma.
+# Formato: pacchetto=hash (una voce per riga, #avvia una commento).
+# Questo file viene scaricato dall'app da GitHub per aggiornare la tabella
+# delle firme senza dover ricompilare l'APK.
+# Verificato su APKMirror e fonti ufficiali.
+
+# WhatsApp — CN=Brian Acton, O=WhatsApp Inc.
+com.whatsapp=3987d043d10aefaf5a8710b3671418fe57e0e19b653c9df82558feb5ffce5d44
+com.whatsapp.w4b=3987d043d10aefaf5a8710b3671418fe57e0e19b653c9df82558feb5ffce5d44
+
+# Instagram — CN=Kevin Systrom, O=Instagram Inc.
+com.instagram.android=5f3e50f435583c9ae626302a71f7340044087a7e2c60adacfc254205a993e305
+com.instagram.lite=5f3e50f435583c9ae626302a71f7340044087a7e2c60adacfc254205a993e305
+
+# Telegram — Telegram FZ-LLC
+org.telegram.messenger=637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5
+org.telegram.messenger.web=637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5
+org.thunderdog.challegram=637cea357d17e2d025431602d9b980a6d7631830a9d1923ab6806bf8dcc300e5
+
+# Snapchat — CN=Daniel Smith, Snap Inc.
+com.snapchat.android=2f1caafca1ed30d0b4e38863eefabea0e815711fa4cf79b822519a8259d95a58

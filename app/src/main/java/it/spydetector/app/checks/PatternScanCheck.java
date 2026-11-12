@@ -73,6 +73,30 @@ public class PatternScanCheck implements Check {
             }
 
             if (hit == null) continue;
+
+            // --- firma ufficiale: se l'app ha la firma ufficiale nota, non e' un warning.
+            //     Lo spyware vero non ha la firma ufficiale del prodotto clonato.
+            //     Questo previene false positive da pattern di nome su app legittime.
+            boolean officialSig = ThreatDb.isOfficialSignature(data.ctx, app.pkg);
+            if (officialSig) {
+                // App ufficiale: aggiorna il finding come ATTENTION (non warning/critical)
+                // per mostrare che la firma e' stata verificata.
+                out.add(new Finding("PATTERN_OFFICIAL_" + kind + "_" + slug(app.pkg), cat,
+                        "Firma ufficiale verificata: " + app.label,
+                        Severity.ATTENTION,
+                        app.pkg + " ha un nome che corrisponde al pattern pubblico '"
+                        + hit.value + "' della famiglia '" + hit.name + "', ma la firma "
+                        + "SHA-256 corrisponde a quella ufficiale registrata: e' l'app genuina.",
+                        "Nessuna azione necessaria: la firma è stata verificata come ufficiale. "
+                        + "Questo messaggio serve solo a confermare che l'app è legittima.")
+                        .detail("Pacchetto", app.pkg)
+                        .detail("Tipo pattern", kind + " (" + hit.value + ")")
+                        .detail("Famiglia", hit.name)
+                        .detail("Tipo", hit.kind)
+                        .detail("Firma", "ufficiale verificata"));
+                continue;
+            }
+
             hits++;
 
             String proof;
