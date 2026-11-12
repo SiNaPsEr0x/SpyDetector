@@ -1,9 +1,9 @@
 name: Automerge aggiornamenti
 
-# Le PR di aggiornamento (Dependabot e "Security & Updates") vengono unite
-# automaticamente SOLO se TUTTI i check sono verdi: build APK, verifica,
-# SAST, CodeQL, secret scanning, dependency review.
-# Per Dependabot la major resta manuale.
+# Tutte le PR vengono unite automaticamente SOLO se TUTTI i check obbligatori
+# sono verdi: build APK, verifica, actionlint, SAST, CodeQL, secret scanning,
+# dependency review, vulnerability scan, malware scan.
+# Per Dependabot gli aggiornamenti major restano manuali.
 
 on:
   pull_request:
@@ -16,9 +16,6 @@ permissions:
 jobs:
   automerge:
     name: Merge se verde
-    if: >
-      github.event.pull_request.user.login == 'dependabot[bot]' ||
-      startsWith(github.event.pull_request.head.ref, 'chore/security-updates')
     runs-on: ubuntu-latest
     steps:
       - name: Attendi i check obbligatori
@@ -26,7 +23,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '(CI / Build \+ verifica APK|Actionlint.*|SAST.*|CodeQL.*|Secret Scanning.*|Dependency Review.*|Vulnerability Scan.*)'
+          check-regexp: '(Build \+ verifica APK|Actionlint|CodeQL|Semgrep|gitleaks|Vulnerabilita.*dipendenze|OSV Scanner|Trivy|ClamAV)'
           wait-interval: 20
           allowed-conclusions: success,skipped,neutral
           running-workflow-name: 'Automerge aggiornamenti'
