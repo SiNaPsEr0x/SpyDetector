@@ -44,4 +44,10 @@ jobs:
               exit 0
             fi
           fi
-          gh pr merge "$PR" --squash --delete-branch
+          # piccolo delay per permettere a GitHub di aggiornare lo stato mergeable
+          sleep 5
+          gh pr merge "$PR" --squash 2>&1 || {
+            echo "::error::gh pr merge fallito — stato PR:"
+            gh pr view "$PR" --json state,mergeable,mergeStateStatus 2>&1
+            exit 1
+          }
