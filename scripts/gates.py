@@ -1017,6 +1017,7 @@ def gate_actions(ctx):
         _check_pr_token(out, ctx, wf, path)
         _check_backticks(out, ctx, wf, path)
         _check_gh_repo(out, ctx, wf, path)
+        _check_gh_permissions(out, ctx, wf, path)
     return out
 
 
@@ -1160,6 +1161,73 @@ def _check_gh_repo(out, ctx, wf, path):
                            "comando fallisce — metti `GH_REPO` nell'`env:` del passo"
                            % cmd.group(1)))
 
+
+GH_CMD_RE = re.compile(r"\bgh\s+([a-z]+)\s+([a-z-]+)")
+
+# verbi che scrivono: tutto il resto e' una lettura
+GH_WRITE_VERBS = frozenset([
+    "create", "comment", "edit", "delete", "merge", "close", "reopen",
+    "upload", "download", "ready", "review", "enable", "disable", "rerun",
+    "cancel", "add", "remove", "set", "pin", "unpin", "lock", "unlock",
+    "approve", "sync", "import", "rename", "transfer", "watch", "unwatch",
+])
+
+# comando gh -> permesso che il GITHUB_TOKEN deve avere per non rispondere 403
+GH_PERMS = {
+    "issue": "issues",
+    "label": "issues",
+    "pr": "pull-requests",
+    "release": "contents",
+    "workflow": "actions",
+    "run": "actions",
+    "cache": "actions",
+    "variable": "actions",
+    "secret": "secrets",
+    "attestation": "attestations",
+}
+
+def _check_gh_permissions(out, ctx, wf, path):
+    """Comando `gh` senza il permesso che gli serve: 403 a corsa avviata.
+
+    Il blocco `permissions:` e' la sola cosa che decide cosa il token della
+    corsa puo' fare: se una workflow chiama `gh issue create` senza
+    `issues: write` il passo muore con 403 alla fine della corsa, dopo aver
+    fatto tutto il lavoro. Non e' visibile leggendo lo script e non lo vede
+    nessun altro controllo: qui il permesso effettivo (job, altrimenti
+    workflow) viene confrontato con il comando. `gh api` resta fuori: il
+    permesso dipende dal path, non dal verbo.
+    """
+    if not wf.jobs:
+        return
+    reported = set()
+    for step in wf.steps:
+        run = step["keys"].get("run")
+        if run is None or not run.block:
+            continue
+        code = "\n".join(t for _, t in run.block)
+        job = wf.jobs.get(step.get("job"))
+        perms = (job or {}).get("permissions") or wf.permissions or {}
+        if perms.get("__all__") == "write-all":
+            continue
+        for m in GH_CMD_RE.finditer(code):
+            cmd, verb = m.group(1), m.group(2)
+            need = GH_PERMS.get(cmd)
+            if need is None:
+                continue
+            level = "write" if verb in GH_WRITE_VERBS else "read"
+            have = perms.get(need) or perms.get("__all__") or "none"
+            if have == "write" or (level == "read" and have == "read"):
+                continue
+            # lo stesso permesso mancante si dice una volta sola
+            if (need, level) in reported:
+                continue
+            reported.add((need, level))
+            out.append(Finding(
+                "actions", "wf-perm-gh-command",
+                ERROR if level == "write" else WARN, path, run.line,
+                "`gh %s %s` richiede `%s: %s`, ma il permesso effettivo e' "
+                "`%s`: il passo fallisce con 403 a corsa avviata"
+                % (cmd, verb, need, level, have)))
 
 CREATE_PR_RE = re.compile(r"uses:\s*peter-evans/create-pull-request\b")
 WITH_TOKEN_RE = re.compile(r"^\s+token:\s*\S", re.M)

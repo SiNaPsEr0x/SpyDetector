@@ -29,6 +29,14 @@ jobs:
   automerge:
     name: Merge se verde
     runs-on: ubuntu-latest
+    # una bozza non e' fondibile: aspettare i check per poi farsi rispondere
+    # "Draft pull requests cannot be merged" produce solo una corsa rossa. La
+    # PR torna qui da sola quando viene segnata pronta (ready_for_review).
+    if: github.event.pull_request.draft == false
+    # il passo di attesa non ha un timeout proprio: senza questo limite una PR
+    # i cui check non partono mai (es. corsa in attesa di approvazione) tiene
+    # occupato un runner per le sei ore del default
+    timeout-minutes: 120
     steps:
       - name: Attendi i check obbligatori
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
