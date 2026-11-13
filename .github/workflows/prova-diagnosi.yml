@@ -43,25 +43,60 @@ jobs:
             echo "il clone non e' shallow"
           fi
 
-      - name: Push di un branch nuovo dal clone shallow
+      - name: Sequenza git di create-pull-request, comando per comando
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.ref_name }}
         run: |
           set -uo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          echo "prova" > prova-diagnosi.txt
-          git add prova-diagnosi.txt
-          git commit -q -m "prova: commit per il push di diagnosi"
-          REF="refs/heads/prova-diagnosi-$GITHUB_RUN_ID"
-          if ERR=$(git push origin "HEAD:$REF" 2>&1); then
-            echo "::warning::push shallow RIUSCITO, ipotesi sbagliata: cancello $REF"
-            gh api -X DELETE "repos/$GH_REPO/git/$REF" >/dev/null 2>&1 \
-              || echo "::error::cancellazione di $REF fallita, va fatta a mano"
+          # l'action sceglie un nome di branch temporaneo con un uuid
+          TMP="tmp-$(date +%s)-$$"
+          PROVA="prova/cpr-$GITHUB_RUN_ID"
+
+          prova() {
+            # esegue il comando e dice come e' finita: l'action non tollera
+            # codici diversi da zero su checkout, reset, rev-list, stash e push
+            ETICHETTA="$1"; shift
+            if OUT=$("$@" 2>&1); then
+              echo "ok    $ETICHETTA"
+            else
+              RC=$?
+              echo "::warning::$ETICHETTA uscita $RC: ${OUT//$'\n'/ | }"
+              echo "FALLITO $ETICHETTA" >> /tmp/esiti.txt
+            fi
+          }
+
+          prova "checkout -B $TMP HEAD" git checkout --progress -B "$TMP" HEAD --
+          # una modifica dentro uno degli add-paths di security-updates.yml
+          echo "" >> docs/security/iocs.md
+          prova "add dei percorsi" git add --force -- docs/security/ .github/workflows \
+            tools/toolchain.env data/threat-seed.txt data/official-signatures.txt \
+            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
+          prova "commit" git commit -q -m "prova: modifica per la diagnosi"
+          prova "stash push --include-untracked" git stash push --include-untracked
+          prova "checkout della base" git checkout --progress "$BASE" --
+          prova "reset --hard origin/$BASE" git reset --hard "origin/$BASE"
+          prova "checkout -B $PROVA" git checkout --progress -B "$PROVA" "$TMP" --
+          prova "rev-list --right-only --count" git rev-list --right-only --count \
+            "$BASE...$PROVA"
+          prova "push --force-with-lease" git push --force-with-lease origin \
+            "$PROVA:refs/heads/$PROVA"
+          prova "push semplice (confronto)" git push origin "$PROVA:refs/heads/$PROVA"
+
+          if git ls-remote --heads origin "$PROVA" | grep -q .; then
+            echo "il branch di prova esiste: lo cancello"
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$PROVA" >/dev/null 2>&1 \
+              || echo "::error::cancellazione di $PROVA fallita, va fatta a mano"
           else
-            echo "codice di uscita del push: $?"
-            echo "::notice::push shallow rifiutato: ${ERR//$'\n'/ | }"
+            echo "nessun branch creato: la sequenza si e' fermata prima"
+          fi
+          if [ -f /tmp/esiti.txt ]; then
+            echo "::warning::comandi falliti: $(tr '\n' '; ' < /tmp/esiti.txt)"
+          else
+            echo "::notice::nessun comando della sequenza e' fallito"
           fi
 
   attestazioni:
