@@ -230,10 +230,10 @@ jobs:
             echo "il ciclo; \`automerge.yml\` la unisce solo se tutto e' verde."
             echo ""
             if [ "${HAS_PAT:-false}" != "true" ]; then
-              echo "> **Nota**: PR aperta col `GITHUB_TOKEN`, che non innesca"
+              echo "> **Nota**: PR aperta col \`GITHUB_TOKEN\`, che non innesca"
               echo "> workflow. La CI viene riavviata dal ciclo sul branch di"
               echo "> correzione, ma il merge automatico richiede il segreto"
-              echo "> `SPD_PR_TOKEN` (PAT con contents e pull-requests in scrittura)."
+              echo "> \`SPD_PR_TOKEN\` (PAT con contents e pull-requests in scrittura)."
               echo ""
             fi
             if [ -f build/selfheal.md ]; then cat build/selfheal.md; fi
@@ -306,8 +306,8 @@ jobs:
             echo "### PR senza eventi (GITHUB_TOKEN)"
             echo ""
             echo "La PR e' stata aperta col token della corsa, che non innesca"
-            echo "workflow: la CI e' stata riavviata a mano su `$HEAL_BRANCH`."
-            echo "Per chiudere il ciclo da solo serve il segreto `SPD_PR_TOKEN`"
+            echo "workflow: la CI e' stata riavviata a mano su \`$HEAL_BRANCH\`."
+            echo "Per chiudere il ciclo da solo serve il segreto \`SPD_PR_TOKEN\`"
             echo "(PAT con contents e pull-requests in scrittura)."
           } >> "$GITHUB_STEP_SUMMARY"
 

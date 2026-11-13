@@ -558,6 +558,41 @@ def gate_hygiene(ctx):
 # --------------------------------------------------------------------------
 # gate: shell
 # --------------------------------------------------------------------------
+def _backtick_lines(text):
+    """Righe con un backtick non escapato fuori dagli apici singoli.
+
+    Fuori dagli apici singoli il backtick e' una sostituzione di comando a tutti
+    gli effetti: se era testo (markdown dentro un echo) il contenuto viene
+    eseguito come comando e sparisce dall'output; se era stile legacy va scritto
+    `$(...)`. L'intento non e' deducibile in modo sicuro, quindi niente
+    correzione automatica. shellcheck la chiama SC2006 e in CI actionlint la
+    rende bloccante sui blocchi `run:`; qui la vediamo anche senza shellcheck.
+    """
+    hits = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        in_single = False
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if ch == "\\" and not in_single:
+                i += 2
+                continue
+            if ch == "'":
+                in_single = not in_single
+            elif ch == "`" and not in_single:
+                hits.append((lineno, line))
+                break
+            i += 1
+    return hits
+
+
+BACKTICK_MSG = ("backtick non escapato fuori dagli apici singoli: per la shell e' "
+                "una sostituzione di comando — se era voluto scrivilo `$(...)`, "
+                "se era testo escapalo (\\`)")
+
+
 def gate_shell(ctx):
     out = []
     bash = ctx.tool("bash") or "/bin/bash"
@@ -581,6 +616,8 @@ def gate_shell(ctx):
                 line = _first_line_no(r.stderr)
                 out.append(Finding("shell", "sh-syntax", ERROR, path, line,
                                    "sintassi bash non valida: %s" % _one_line(r.stderr)))
+        for ln, _line in _backtick_lines(text):
+            out.append(Finding("shell", "sh-backtick", ERROR, path, ln, BACKTICK_MSG))
         if shellcheck:
             # shellcheck e' opzionale e la sua versione cambia da un ambiente
             # all'altro: i suoi esiti non sono mai bloccanti (la sintassi, che
@@ -978,6 +1015,7 @@ def gate_actions(ctx):
         _check_downloads(out, ctx, wf, path)
         _check_merge_redispatch(out, ctx, wf, path)
         _check_pr_token(out, ctx, wf, path)
+        _check_backticks(out, ctx, wf, path)
     return out
 
 
@@ -1064,6 +1102,19 @@ def _check_merge_redispatch(out, ctx, wf, path):
                        "altre workflow, quindi Release e le scansioni su push verso il "
                        "branch predefinito restano ferme — riavvia quelle necessarie "
                        "con `gh workflow run <file> --ref <branch>`"))
+
+
+def _check_backticks(out, ctx, wf, path):
+    """Backtick nei blocchi `run:`: actionlint+shellcheck li bocciano in CI."""
+    for step in wf.steps:
+        run = step["keys"].get("run")
+        if run is None or not run.block:
+            continue
+        first = run.block[0][0]
+        text = "\n".join(t for _, t in run.block)
+        for ln, _line in _backtick_lines(text):
+            out.append(Finding("actions", "sh-backtick", ERROR, path, first + ln - 1,
+                               BACKTICK_MSG))
 
 
 CREATE_PR_RE = re.compile(r"uses:\s*peter-evans/create-pull-request\b")

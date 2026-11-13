@@ -313,6 +313,20 @@ def inj_invalid_yaml(d):
           read(d, ".github/workflows/secrets.yml") + "\n  rotto: non: yaml\n")
 
 
+def inj_backtick_in_run(d):
+    """Backtick markdown in un echo dentro un blocco run: diventa un comando."""
+    sub(d, ".github/workflows/ci.yml",
+        '          "$JAVA" -jar "$APKSIGNER" verify',
+        '          echo "fatto: vedi `docs/SECURITY.md`"\n'
+        '          "$JAVA" -jar "$APKSIGNER" verify')
+
+
+def inj_backtick_in_sh(d):
+    """Stesso difetto in uno script shell, dove actionlint non guarda."""
+    rel = "build.sh"
+    write(d, rel, read(d, rel) + '\necho "APK pronto: vedi `README.md`"\n')
+
+
 def inj_pr_token_default(d):
     """Toglie il PAT: la PR del bot non innesca piu' nessun workflow."""
     rel = ".github/workflows/security-updates.yml"
@@ -356,6 +370,8 @@ MANUAL = [
      inj_merge_no_redispatch, None),
     ("PR aperta col token di default", "wf-pr-token-default",
      inj_pr_token_default, None),
+    ("backtick in un blocco run", "sh-backtick", inj_backtick_in_run, None),
+    ("backtick in uno script shell", "sh-backtick", inj_backtick_in_sh, None),
     # rilevato solo se pyyaml e' installato (dipendenza in scripts/requirements.txt)
     ("YAML non valido", "yaml-invalid", inj_invalid_yaml, None),
     # il pin si puo' rifare, ma serve l'API GitHub: offline resta in carico a noi
