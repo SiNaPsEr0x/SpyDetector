@@ -13,6 +13,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: automerge-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   automerge:
     name: Merge se verde
@@ -23,7 +27,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '(Build \+ verifica APK|Actionlint|CodeQL|Semgrep|gitleaks|Vulnerabilita.*dipendenze|OSV Scanner|Trivy|ClamAV)'
+          check-regexp: '(Build \+ verifica APK|Gate di qualita|Actionlint|CodeQL|Semgrep|gitleaks|Vulnerabilita.*dipendenze|OSV Scanner|Trivy|ClamAV)'
           wait-interval: 20
           allowed-conclusions: success,skipped,neutral
           running-workflow-name: 'Automerge aggiornamenti'

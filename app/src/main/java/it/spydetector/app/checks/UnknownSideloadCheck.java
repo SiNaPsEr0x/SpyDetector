@@ -7,7 +7,6 @@ import it.spydetector.app.core.InstalledApps;
 import it.spydetector.app.core.ScanData;
 import it.spydetector.app.core.Severity;
 import it.spydetector.app.core.ThreatDb;
-import it.spydetector.app.util.Sys;
 
 import java.util.ArrayList;
 import java.util.Arrays;

@@ -1,0 +1,125 @@
+name: 'Ciclo di self-healing'
+description: >-
+  Esegue scripts/selfheal.py: gate -> correzioni deterministiche -> di nuovo
+  gate, per max-rounds volte, finche' il repository e' verde o finche' le
+  correzioni automatiche non bastano piu'. Non fallisce lo step: espone lo
+  stato (clean/healed/stuck/regressed) negli output, cosi' la workflow decide
+  se aprire una PR, una issue o annullare tutto.
+inputs:
+  max-rounds:
+    description: 'Numero massimo di cicli gate -> correzione'
+    required: false
+    default: '3'
+  with-build:
+    description: "Includi build.sh + verify-apk.py nei gate ('true' o 'false')"
+    required: false
+    default: 'false'
+  improve:
+    description: "Applica anche i miglioramenti non bloccanti ('true' o 'false')"
+    required: false
+    default: 'false'
+  dry-run:
+    description: "Calcola le correzioni senza scrivere nulla ('true' o 'false')"
+    required: false
+    default: 'false'
+  gates:
+    description: 'Gate da eseguire (separati da spazio); vuoto = tutti'
+    required: false
+    default: ''
+  skip-gates:
+    description: 'Gate da saltare (separati da spazio)'
+    required: false
+    default: ''
+  fix-skip:
+    description: 'Regole di correzione da non applicare (separate da spazio)'
+    required: false
+    default: ''
+outputs:
+  status:
+    description: 'clean | healed | stuck | regressed | error'
+    value: ${{ steps.heal.outputs.status }}
+  healed:
+    description: "'true' se il repository e' verde alla fine del ciclo"
+    value: ${{ steps.heal.outputs.healed }}
+  improved:
+    description: "'true' se il ciclo ha modificato almeno un file"
+    value: ${{ steps.heal.outputs.improved }}
+  rounds:
+    description: 'Round eseguiti'
+    value: ${{ steps.heal.outputs.rounds }}
+  errors:
+    description: 'Errori residui a fine ciclo'
+    value: ${{ steps.heal.outputs.errors }}
+  warnings:
+    description: 'Avvisi residui a fine ciclo'
+    value: ${{ steps.heal.outputs.warnings }}
+  changed-files:
+    description: 'Numero di file modificati dalle correzioni'
+    value: ${{ steps.heal.outputs.changed-files }}
+  manual:
+    description: 'Regole che richiedono una persona (separate da virgola)'
+    value: ${{ steps.heal.outputs.manual }}
+
+runs:
+  using: composite
+  steps:
+    # pyyaml (scripts/requirements.txt): serve ai gate per la validazione
+    # completa delle workflow. Senza, i gate girano lo stesso con una nota.
+    - name: Dipendenze di analisi
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --quiet --disable-pip-version-check\
+          -r scripts/requirements.txt
+
+    - name: Ciclo gate -> correzione -> verifica
+      id: heal
+      shell: bash
+      env:
+        # serve a scripts/update-pins.py (regola wf-pin) per l'API GitHub
+        GH_TOKEN: ${{ github.token }}
+        # gli input passano da env, mai interpolati nello script
+        SPD_MAX_ROUNDS: ${{ inputs.max-rounds }}
+        SPD_WITH_BUILD: ${{ inputs.with-build }}
+        SPD_IMPROVE: ${{ inputs.improve }}
+        SPD_DRY_RUN: ${{ inputs.dry-run }}
+        SPD_GATES: ${{ inputs.gates }}
+        SPD_SKIP_GATES: ${{ inputs.skip-gates }}
+        SPD_FIX_SKIP: ${{ inputs.fix-skip }}
+      run: |
+        set -uo pipefail    # senza -e: lo stato esce dagli output, non dal rc
+        # --revert-on-regression: una correzione che aumenta gli errori
+        # viene annullata con git invece di finire in una PR
+        ARGS=(--max-rounds "$SPD_MAX_ROUNDS"
+              --json build/selfheal.json
+              --markdown build/selfheal.md
+              --step-summary
+              --revert-on-regression)
+        [ "$SPD_WITH_BUILD" = "true" ] && ARGS+=(--with-build)
+        [ "$SPD_IMPROVE" = "true" ] && ARGS+=(--improve)
+        [ "$SPD_DRY_RUN" = "true" ] && ARGS+=(--dry-run)
+        for gate in $SPD_GATES; do ARGS+=(--gate "$gate"); done
+        for gate in $SPD_SKIP_GATES; do ARGS+=(--skip "$gate"); done
+        for rule in $SPD_FIX_SKIP; do ARGS+=(--fix-skip "$rule"); done
+
+        python3 scripts/selfheal.py "${ARGS[@]}"
+        RC=$?
+        echo "exit-code=$RC" >> "$GITHUB_OUTPUT"
+        if [ "$SPD_DRY_RUN" = "true" ]; then
+          # in dry-run i file non vengono scritti: niente da committare
+          echo "improved=false" >> "$GITHUB_OUTPUT"
+        fi
+        # lo step non fallisce: decide la workflow in base allo stato
+        exit 0
+
+    - name: Carica il report del ciclo
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: self-heal-report
+        path: |
+          build/selfheal.json
+          build/selfheal.md
+          build/gates.json
+        if-no-files-found: ignore
+        retention-days: 14

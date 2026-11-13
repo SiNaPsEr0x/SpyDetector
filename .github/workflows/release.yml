@@ -45,37 +45,40 @@ jobs:
 
       - name: Versione
         id: ver
+        env:
+          # l'input manuale non va mai interpolato nello script: passa da env
+          SPD_INPUT_VERSION: ${{ inputs.version }}
         run: |
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           V="$(tr -d '[:space:]' < VERSION)"
-          if [ -n "${{ inputs.version }}" ]; then
+          if [ -n "$SPD_INPUT_VERSION" ]; then
+            # finisce in VERSION, nel tag e in un messaggio di commit: deve
+            # essere un semver pulito, niente shell o caratteri strani
+            if ! printf '%s' "$SPD_INPUT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::versione non valida: '$SPD_INPUT_VERSION' (atteso X.Y.Z)"
+              exit 1
+            fi
             # release esplicita (release.sh o dispatch manuale con input):
             # scrivi la versione e committa con il marker "release:" così
             # l'auto-bump a fine workflow non la modifica
-            echo "${{ inputs.version }}" > VERSION
+            echo "$SPD_INPUT_VERSION" > VERSION
             git add VERSION
-            git commit -m "release: v${{ inputs.version }} [skip ci]" || true
+            git commit -m "release: v$SPD_INPUT_VERSION [skip ci]" || true
             git push
-            V="${{ inputs.version }}"
+            V="$SPD_INPUT_VERSION"
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
           echo "SpyDetector v$V"
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      # la stessa action composite usata da ci.yml e malware-scan.yml
+      - name: Toolchain di build
+        id: tc
+        uses: ./.github/actions/setup-toolchain
         with:
           python-version: '3.12'
-
-      - name: Cache toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .toolchain
-          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
-
-      - name: Toolchain pinnato + hash verificato
-        run: ./tools/fetch-toolchain.sh
+          cache: 'true'
 
       - name: Build APK di release
         env:
@@ -91,10 +94,12 @@ jobs:
         run: python3 scripts/verify-apk.py dist/*.apk
 
       - name: Firma e allineamento (apksigner verify)
+        env:
+          JAVA: ${{ steps.tc.outputs.java }}
+          APKSIGNER: ${{ steps.tc.outputs.apksigner }}
         run: |
-          JAVA=.toolchain/jdk/bin/java
-          [ -x "$JAVA" ] || JAVA=java
-          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk\
+          set -euo pipefail
+          "$JAVA" -jar "$APKSIGNER" verify --min-sdk-version 26 --verbose dist/*.apk\
             | tee build/apksigner-verify.txt
 
       - name: SBOM (SPDX) dell'APK

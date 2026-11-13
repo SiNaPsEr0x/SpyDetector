@@ -1,12 +1,21 @@
 name: CI
 
+# Su main il build+release e' gestito da release.yml (ogni push su main rifa
+# l'APK); qui si costruisce solo per le branch di lavoro e le PR.
+#
+# I tre job condividono le action composite in .github/actions/: la stessa
+# definizione di "prepara la toolchain" e di "esegui i gate" usata anche da
+# release.yml, malware-scan.yml, security-updates.yml e self-heal.yml.
+# Se una verifica fallisce, auto-fix-on-failure.yml avvia il ciclo di
+# self-healing che prova a riparare e riapre una PR da ricontrollare.
+
 on:
-  # su main il build+release è gestito da release.yml (ogni push su main
-  # rifa l'APK); qui si costruisce solo per le branch di lavoro e le PR
   push:
     branches: ['arena/**']
+  # tutte le PR, non solo quelle verso main: automerge.yml unisce una PR solo
+  # se i check obbligatori sono verdi, e per farlo i check devono esistere
+  # anche quando la PR punta a un branch di lavoro (es. fix/self-heal/*)
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,9 +24,6 @@ permissions:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  JAVA_VERSION: '21'
 
 jobs:
   lint-workflows:
@@ -31,26 +37,36 @@ jobs:
           fail-on-error: true
           shellcheck: true
 
+  gates:
+    name: Gate di qualita'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # il meccanismo che corregge deve essere corretto lui per primo:
+      # difetti iniettati in una copia del repo, il ciclo deve ripararli tutti
+      - name: Self-test del ciclo di self-healing
+        run: python3 scripts/test-selfheal.py
+
+      # senza build: l'APK lo compila il job qui sotto (niente download doppi)
+      - name: Gate sul repository
+        uses: ./.github/actions/quality-gates
+        with:
+          with-build: 'false'
+          fail-on: error
+
   build:
     name: Build + verifica APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Toolchain di build
+        id: tc
+        uses: ./.github/actions/setup-toolchain
         with:
           python-version: '3.12'
-
-      - name: Cache toolchain (.toolchain)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .toolchain
-          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
-          restore-keys: toolchain-${{ runner.os }}-
-
-      - name: Toolchain pinnato + hash verificato
-        run: ./tools/fetch-toolchain.sh
+          cache: 'true'
 
       - name: Build APK di release
         run: ./build.sh
@@ -59,10 +75,13 @@ jobs:
         run: python3 scripts/verify-apk.py dist/*.apk
 
       - name: Firma (apksigner verify)
+        env:
+          # java e apksigner vengono dalla toolchain pinnata, non dal runner
+          JAVA: ${{ steps.tc.outputs.java }}
+          APKSIGNER: ${{ steps.tc.outputs.apksigner }}
         run: |
-          JAVA=.toolchain/jdk/bin/java
-          [ -x "$JAVA" ] || JAVA=java
-          "$JAVA" -jar .toolchain/lib/apksigner.jar verify --min-sdk-version 26 --verbose dist/*.apk\
+          set -euo pipefail
+          "$JAVA" -jar "$APKSIGNER" verify --min-sdk-version 26 --verbose dist/*.apk\
             | tee build/apksigner-verify.txt
 
       - name: Upload artifact

@@ -15,6 +15,10 @@ permissions:
   packages: read
   actions: read
 
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: CodeQL (Actions)

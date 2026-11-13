@@ -10,6 +10,9 @@ partendo da:
     (righe: TIPO|valore|nome famiglia|tipo|gravita, TIPO in PKG|CERT|COMP)
   * eventuali fonti upstream raggiungibili (opzionali: se offline non e' errore)
 
+  python3 scripts/update-threat-db.py           # rigenera il database
+  python3 scripts/update-threat-db.py --check   # verifica senza scrivere (exit 3 se diverso)
+
 Le liste vengono VALIDATE (sintassi dei package/pattern, niente duplicati,
 nessun dimezzamento improvviso) prima di essere scritte: se la validazione
 fallisce, il file generato viene lasciato intatto e lo script esce in errore.
@@ -123,7 +126,7 @@ def validate_patterns(entries):
     return clean, errors
 
 
-def main():
+def main(check=False):
     seed = read_seed()
     curated = read_curated()
     prev_count = len(curated)
@@ -192,10 +195,16 @@ def main():
     if strip(old) == strip(content):
         print("   gia' aggiornato")
         return 0
+    if check:
+        # modalita' verifica: non scrive, segnala solo la differenza (exit 3)
+        print("DA ALLINEARE: %s non corrisponde a data/ "
+              "(esegui scripts/update-threat-db.py)" % os.path.relpath(OUT, ROOT))
+        return 3
     open(OUT, "w", encoding="utf-8").write(content)
     print("   scritto %s" % os.path.relpath(OUT, ROOT))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # --check: verifica l'allineamento senza scrivere (usato da scripts/gates.py)
+    sys.exit(main(check="--check" in sys.argv[1:]))

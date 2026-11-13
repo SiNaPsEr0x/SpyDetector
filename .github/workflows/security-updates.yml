@@ -54,6 +54,9 @@ jobs:
           # 0 = aggiornato/invariato, 3 = aggiornamenti disponibili
           [ "$RC" = "0" ] || [ "$RC" = "3" ]
 
+      # qui la toolchain NON passa da .github/actions/setup-toolchain: la cache
+      # va letta DOPO che update-toolchain.py ha riscritto tools/toolchain.env,
+      # altrimenti la chiave sarebbe quella delle versioni vecchie
       - name: Cache toolchain
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -69,14 +72,20 @@ jobs:
           ./build.sh
           python3 scripts/verify-apk.py dist/*.apk
 
+      # stessa action pinnata di vulnerability-scan.yml: niente binario
+      # scaricato ed eseguito senza verifica dell'hash
       - name: Vulnerabilita' dipendenze + file (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true
-        run: |
-          curl -sSL -o trivy.tgz\
-            https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz
-          tar xzf trivy.tgz trivy || true
-          ./trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH\
-            --format table --exit-code 0 . | tee trivy-report.txt || true
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          output: trivy-report.txt
+          exit-code: '0'
 
       - name: Riepilogo
         if: always()

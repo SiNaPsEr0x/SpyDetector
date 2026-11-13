@@ -1,0 +1,225 @@
+name: Auto-Fix (innesco)
+
+# E' il collegamento fra le pipeline esistenti e il ciclo di self-healing:
+# quando una di quelle workflow fallisce, qui si legge il perche', si riavvia
+# `Self-Heal` sul branch che ha fallito e si avvisa nella PR.
+#
+#   CI / SAST / CodeQL / Secret / Malware / Vulnerability / Scorecard /
+#   Security updates / Release  ──falliscono──▶  Auto-Fix (innesco)
+#                                                        │
+#                                                        ▼
+#                                                   Self-Heal
+#                                            (gate → correzione → gate)
+#                                                        │
+#                                                        ▼
+#                                     PR ──▶ la CI ricontrolla ──▶ automerge
+#                                                        │
+#                                          se fallisce di nuovo ──▶ qui
+#
+# Il giro non e' infinito: Self-Heal conta i propri tentativi sul branch
+# (marker `[self-heal]` nei commit) e qui c'e' un tetto alle corse giornaliere.
+# Quando il tetto scatta, invece di riprovare apre una issue.
+#
+# Non viene innescato da: fork (non possiamo pushare), Dependabot (gestisce da
+# se' le sue PR), Self-Heal (si fermerebbe da solo) e Automerge (i suoi errori
+# sono quasi sempre lo stato transitorio della PR su GitHub).
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - SAST (Semgrep)
+      - Secret Scanning
+      - Malware / IOC Scan
+      - Vulnerability Scan
+      - CodeQL
+      - Repo Scorecard
+      - Security & Updates (giornaliero)
+      - Release
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: auto-fix-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Diagnosi e innesco del ciclo
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Contesto della corsa fallita
+        id: ctx
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.event.workflow_run.actor.login }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          DAILY_BUDGET: '8'
+        run: |
+          set -euo pipefail
+          SKIP=""
+          BRANCH="${HEAD_BRANCH:-}"
+
+          # --- guardie: quando NON ha senso innescare il ciclo -------------
+          if [ -z "$BRANCH" ]; then
+            SKIP="nessun branch nella corsa (evento senza ref)"
+          elif [ "$HEAD_REPO" != "$REPO" ]; then
+            SKIP="la corsa viene dal fork $HEAD_REPO: non possiamo pushare"
+          elif [ "$ACTOR" = "dependabot[bot]" ] || [ "$ACTOR" = "dependabot" ]; then
+            SKIP="PR di Dependabot: se ne occupa Dependabot"
+          elif ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            SKIP="il branch $BRANCH non esiste piu' su origin"
+          else
+            # tetto alle corse: il ciclo non deve girare in loop tutto il giorno
+            SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                    || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+            TODAY=$(gh run list --workflow self-heal.yml --limit 100 \
+                    --json createdAt --jq "[.[] | select(.createdAt > \"$SINCE\")] | length" \
+                    2>/dev/null || echo 0)
+            echo "corse di self-heal nelle ultime 24h: $TODAY (tetto $DAILY_BUDGET)"
+            if [ "$TODAY" -ge "$DAILY_BUDGET" ]; then
+              SKIP="tetto giornaliero raggiunto ($TODAY/$DAILY_BUDGET)"
+            fi
+          fi
+
+          # --- quale PR corrisponde al branch -----------------------------
+          PR=""
+          if [ -n "$BRANCH" ]; then
+            PR=$(gh pr list --head "$BRANCH" --state open --json number \
+                 --jq '.[0].number // empty' 2>/dev/null || echo "")
+          fi
+
+          {
+            echo "branch=$BRANCH"
+            echo "sha=$HEAD_SHA"
+            echo "pr=$PR"
+            echo "workflow=$WF_NAME"
+            echo "run-id=$RUN_ID"
+            echo "skip=${SKIP}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -n "$SKIP" ]; then
+            echo "nessun innesco: $SKIP"
+          else
+            echo "innesco self-heal su $BRANCH (PR ${PR:-nessuna})"
+          fi
+
+      - name: Perche' e' fallita
+        if: steps.ctx.outputs.skip == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -uo pipefail
+          mkdir -p build
+          gh run view "$RUN_ID" --json displayTitle,event,conclusion,jobs \
+            --jq '{titolo: .displayTitle, evento: .event, esito: .conclusion,
+                   job: [.jobs[] | select(.conclusion == "failure")
+                         | {nome: .name, url: .url,
+                            step: [.steps[] | select(.conclusion == "failure") | .name]}]}' \
+            > build/failed-jobs.json 2>&1
+          cat build/failed-jobs.json
+          # log dei soli step falliti: la diagnosi per chi dovra' intervenire
+          gh run view "$RUN_ID" --log-failed > build/failed.log 2>&1
+          wc -l build/failed.log
+          {
+            echo "### Corsa fallita $RUN_ID"
+            echo '```json'
+            cat build/failed-jobs.json
+            echo '```'
+            echo "<details><summary>ultime 200 righe dei log falliti</summary>"
+            echo ""
+            echo '```'
+            tail -200 build/failed.log
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Carica la diagnosi
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: auto-fix-diagnosi-${{ github.event.workflow_run.id }}
+          path: |
+            build/failed-jobs.json
+            build/failed.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Riavvia il ciclo di self-healing
+        if: steps.ctx.outputs.skip == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.ctx.outputs.branch }}
+          WF_NAME: ${{ steps.ctx.outputs.workflow }}
+          RUN_ID: ${{ steps.ctx.outputs.run-id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          ARGS=(-f "target=$BRANCH"
+                -f "reason=$WF_NAME fallita (run $RUN_ID)"
+                -f "with-build=true"
+                -f "max-rounds=3")
+          if gh workflow run self-heal.yml --ref "$BRANCH" "${ARGS[@]}"; then
+            echo "self-heal avviato con la versione di $BRANCH"
+          else
+            # il branch potrebbe non avere ancora self-heal.yml: si usa quella
+            # del branch principale, restando puntati sul branch da riparare
+            echo "dispatch su $BRANCH non riuscito, riprovo da ${DEFAULT_BRANCH:-main}"
+            gh workflow run self-heal.yml --ref "${DEFAULT_BRANCH:-main}" "${ARGS[@]}"
+          fi
+
+      - name: Avvisa nella PR
+        if: steps.ctx.outputs.skip == '' && steps.ctx.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.ctx.outputs.pr }}
+          WF_NAME: ${{ steps.ctx.outputs.workflow }}
+          RUN_ID: ${{ steps.ctx.outputs.run-id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "**$WF_NAME** e' fallita (corsa $RUN_ID): ho avviato il ciclo di"
+            echo "self-healing su questo branch."
+            echo ""
+            echo "- se trova correzioni deterministiche, le committa qui e la CI"
+            echo "  le ricontrolla tutte;"
+            echo "- se il problema richiede una decisione umana, apre una issue"
+            echo "  con l'etichetta \`self-heal\` invece di inventare una patch."
+            echo ""
+            echo "Diagnosi: $RUN_URL"
+          } > build/pr-comment.md
+          gh pr comment "$PR" --body-file build/pr-comment.md
+
+      - name: Riepilogo
+        if: always()
+        env:
+          SKIP: ${{ steps.ctx.outputs.skip }}
+          BRANCH: ${{ steps.ctx.outputs.branch }}
+        run: |
+          {
+            echo "### Auto-Fix (innesco)"
+            echo ""
+            if [ -n "$SKIP" ]; then
+              echo "Nessun innesco: $SKIP"
+            else
+              echo "Ciclo di self-healing avviato su \`$BRANCH\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -19,9 +19,106 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **SAST** | CodeQL (Actions) + Semgrep (Java/Android, Python, Bash) | `codeql.yml`, `sast.yml` |
 | **Dipendenze** | Dependency Review sulle PR, Dependabot giornaliero | `dependency-review.yml`, `dependabot.yml` |
 | **Vulnerabilità** | OSV Scanner + Trivy (vuln, secret, misconfig) con report in code scanning | `vulnerability-scan.yml` |
+| **CI** | actionlint sulle workflow, gate di qualita' + self-test del ciclo, build e verifica dell'APK su ogni PR e branch di lavoro | `ci.yml`, `.github/actions/` |
+| **Gate di qualita'** | regole su codice Java/Python/shell, workflow (pin SHA, permessi, script injection, binari non verificati), manifest, dati e docs | `scripts/gates.py` |
+| **Correzioni deterministiche** | ogni regola riparabile ha una trasformazione idempotente e verificabile: niente patch inventate | `scripts/autofix.py` |
+| **Self-healing** | ciclo gate → correzione → gate (fino a N round), PR solo se chiude verde, regressione annullata con git | `self-heal.yml`, `scripts/selfheal.py` |
+| **Innesco automatico** | se una pipeline fallisce, il ciclo riparte sul branch che ha fallito e avvisa nella PR | `auto-fix-on-failure.yml` |
+| **Self-test del ciclo** | 54 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
 | **Automerge sicuro** | le PR di aggiornamento vengono unite solo se **tutti** i check sono verdi (le major restano manuali) | `automerge.yml` |
 | **Postura repo** | OpenSSF Scorecard settimanale | `repo-scorecard.yml` |
 | **Aggiornamenti** | job giornaliero che aggiorna toolchain/action/threat DB, **ricompila e verifica**, e apre PR solo se tutto passa | `security-updates.yml` |
+
+## Ciclo di self-healing
+
+Il repository si corregge da solo con un ciclo chiuso. Ogni passaggio e'
+verificato dal successivo: niente finisce su `main` senza che tutta la CI lo
+abbia ricontrollato.
+
+```
+  CI · SAST · CodeQL · Secret · Malware · Vulnerability · Scorecard · Release
+                                     │ fallisce
+                                     ▼
+                          Auto-Fix (innesco)  ── leggia la diagnosi, controlla
+                                     │          i tetti, avvisa nella PR
+                                     ▼
+                               Self-Heal
+                    gate → correzioni deterministiche → gate
+                              (fino a N round)
+                                     │
+                    ┌────────────────┴────────────────┐
+              chiude verde                    errori residui
+                    │                                 │
+                    ▼                                 ▼
+          PR con le correzioni              issue `self-heal` con il report
+                    │                       (nessuna patch inventata)
+                    ▼
+     tutta la CI ricontrolla la PR
+                    │
+       ┌────────────┴────────────┐
+    tutto verde              qualcosa fallisce
+       │                         │
+       ▼                         ▼
+  automerge → Release      Auto-Fix riavvia il ciclo
+  (APK nuovo)              (tetto: 3 tentativi sul branch)
+```
+
+### Cosa corregge da solo
+
+Solo trasformazioni **deterministiche** e **idempotenti** (rilanciarle non
+cambia piu' nulla). Elenco completo: `python3 scripts/autofix.py --list`.
+
+| Regola | Cosa fa |
+|---|---|
+| `ws-trailing`, `ws-final-newline`, `ws-crlf`, `ws-bom` | whitespace, newline finale, CRLF → LF, BOM |
+| `expand-tabs`, `yaml-tabs` | tab → spazi (4 per Java/Python, 2 per YAML) |
+| `py-unused-import`, `java-unused-import` | rimuove gli import il cui nome non compare mai nel file |
+| `sh-shebang`, `py-shebang`, `sh-strict` | shebang e `set -euo pipefail` mancanti |
+| `file-exec-bit`, `file-leftover`, `gitignore-add` | permessi di esecuzione, residui di merge, `.gitignore` |
+| `java-package` | allinea la dichiarazione `package` al percorso del file |
+| `wf-permissions`, `wf-concurrency` | aggiunge `permissions: contents: read` e il blocco `concurrency` |
+| `wf-pin` | pinna le action al commit SHA (via `scripts/update-pins.py`, serve rete) |
+| `manifest-exported` | aggiunge `android:exported` esplicito ai componenti con intent-filter |
+| `data-dedupe`, `data-threatdb` | voci duplicate nei `data/`, `ThreatDbGenerated.java` rigenerato |
+| `docs-workflow-row` | aggiunge alla tabella qui sopra le workflow non documentate |
+| `res-unused` | rimuove le risorse mai referenziate (**solo** con `--improve`) |
+
+### Cosa NON corregge mai
+
+Tutto cio' che richiederebbe una decisione al posto tuo. Il ciclo lo segnala in
+una issue con il report, invece di inventare una patch:
+
+| Regola | Perche' serve una persona |
+|---|---|
+| `java-compile`, `build-failed`, `apk-verify` | un errore di compilazione va capito, non mascherato |
+| `claim-no-internet` | un'affermazione di privacy falsa va riscritta, non cancellata |
+| `manifest-permission-dangerous` | aggiungere `READ_SMS` a un'app anti-spyware e' una scelta di prodotto |
+| `java-check-not-registered` | attivare un'area di scansione cambia cosa vede l'utente |
+| `wf-run-injection`, `wf-pr-target-write` | riscrivere il flusso di una workflow puo' rompere la CI |
+| `wf-unverified-download` | scegliere la fonte e l'hash di un binario e' una decisione di supply chain |
+| `sh-syntax`, `py-syntax`, `yaml-invalid` | sintassi rotta: la causa non e' deducibile in modo sicuro |
+| `data-seed-*`, `docs-link-broken` | contenuti curati a mano |
+
+### Le sicurezze del ciclo
+
+| Rischio | Come viene fermato |
+|---|---|
+| correzione che peggiora le cose | se gli errori **aumentano**, `--revert-on-regression` fa `git reset --hard` + `clean` e non apre nessuna PR |
+| loop infinito fra CI e auto-fix | tentativi contati sul branch (marker `[self-heal]` nei commit, tetto 3) + tetto di 8 corse/24h nell'innesco + `concurrency` su entrambi |
+| merge di una correzione sbagliata | la PR viene riesaminata da **tutta** la CI e `automerge.yml` la unisce solo se ogni check e' verde |
+| modifiche fuori controllo | il ciclo lavora solo sui file tracciati da git; i report finiscono in `build/` (ignorato) |
+| esecuzione di codice arbitrario | le correzioni sono regole fisse in `scripts/autofix.py`: nessun LLM, nessun download, nessuna action nuova; la rete serve solo a `update-pins.py` (API GitHub) |
+| il correttore si rompe | `scripts/test-selfheal.py` gira in CI prima del ciclo: difetti iniettati in una copia del repo, deve ripararli tutti |
+
+### Provarlo in locale
+
+```bash
+python3 scripts/gates.py                    # tutti i controlli (0 errori = verde)
+python3 scripts/gates.py --with-build       # + build dell'APK e verifica
+python3 scripts/autofix.py --dry-run        # cosa verrebbe corretto, senza scrivere
+python3 scripts/selfheal.py --with-build    # il ciclo completo
+python3 scripts/test-selfheal.py            # self-test del meccanismo
+```
 
 ## Aggiornamenti automatici giornalieri
 

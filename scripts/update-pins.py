@@ -15,7 +15,6 @@ Regole:
 import json
 import os
 import re
-import subprocess
 import sys
 from urllib.request import Request, urlopen
 

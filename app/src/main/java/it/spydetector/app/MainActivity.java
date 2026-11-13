@@ -262,8 +262,9 @@ public class MainActivity extends Activity implements Engine.Listener {
         col.addView(Ui.vspace(this, 26));
 
         TextView foot = Ui.textS(this,
-                "Analisi 100% locale: SpyDetector non ha il permesso INTERNET e non invia "
-                + "nessun dato. I risultati sono indicatori tecnici, non prove legali.",
+                "Analisi locale: i tuoi dati non lasciano il telefono. La rete serve solo "
+                + "per aggiornare le firme ufficiali e proporti una versione nuova. "
+                + "I risultati sono indicatori tecnici, non prove legali.",
                 10.5f, 0xFF56687D, Ui.SANS);
         foot.setLineSpacing(Ui.dp(this, 2), 1f);
         col.addView(foot);
@@ -549,7 +550,7 @@ public class MainActivity extends Activity implements Engine.Listener {
     private void shareJsonReport() {
         if (report == null) return;
         Report r = report;
-        
+
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
         sb.append("  \"app\": \"SpyDetector\",\n");
@@ -583,7 +584,7 @@ public class MainActivity extends Activity implements Engine.Listener {
         }
         sb.append("\n  ]\n");
         sb.append("}\n");
-        
+
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType("application/json");
         send.putExtra(Intent.EXTRA_SUBJECT, "SpyDetector report JSON");
