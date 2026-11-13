@@ -1,107 +1,66 @@
 name: Prova delle diagnosi (temporanea)
 
-# Corsa TEMPORANEA. Domanda: perche' il passo "Apri/aggiorna la PR" di
-# security-updates.yml moriva con "The process '/usr/bin/git' failed with exit
-# code 1"? Le corse fallite sono quelle in cui update-pins.py aveva modificato
-# file dentro .github/workflows/, e il GITHUB_TOKEN non ha uno scope
-# "workflows" concedibile (actionlint lo conferma: gli scope disponibili sono
-# actions, attestations, checks, contents, ... e workflows non c'e').
-#
-# A/B: stessa action, stessi permessi (contents + pull-requests), stesso branch
-# di base; cambia solo COSA viene modificato — un file di workflow oppure un
-# file di documentazione. Le PR nascono bozza e vengono chiuse nello stesso job.
-# File da eliminare appena la risposta e' nota.
+# Corsa TEMPORANEA. L'A/B ha gia' risposto: create-pull-request muore con
+# "The process '/usr/bin/git' failed with exit code 1" quando il commit tocca
+# .github/workflows/, e riesce quando tocca solo altri file. L'action pero'
+# ingoia lo stderr di git nel log del runner, che da qui non e' leggibile.
+# Questo job fa il push a mano e stampa il messaggio del server in
+# un'annotazione, cosi' la causa resta scritta e non ipotizzata.
+# File da eliminare subito dopo.
 
 on:
   push:
     branches: ['arena/**']
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: prova-diagnosi
   cancel-in-progress: true
 
 jobs:
-  modifica-workflow:
-    name: PR che tocca un file di workflow
+  messaggio:
+    name: Messaggio del server sul push di una workflow
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Modifica a un file di workflow
-        run: |
-          set -euo pipefail
-          echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
-          git --no-pager status --porcelain -unormal
-
-      - name: create-pull-request
-        id: pr
-        continue-on-error: true
-        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
-        with:
-          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/tocca-workflow
-          base: ${{ github.ref_name }}
-          draft: true
-          title: 'prova: modifica a un file di workflow (bozza)'
-          commit-message: 'prova: modifica a un file di workflow'
-
-      - name: Esito e pulizia
-        if: always()
+      - name: Push a mano di un commit che tocca una workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          PROVA: prova/push-workflow
         run: |
           set -uo pipefail
-          echo "::notice::modifica a una WORKFLOW: esito del passo PR = ${{ steps.pr.outcome }}"
-          PR="$(gh pr list --state open --head prova/tocca-workflow --json number --jq '.[0].number // empty')"
-          if [ -n "$PR" ]; then
-            gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
-              || echo "::warning::chiusura della bozza #$PR non riuscita"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
+          git add .github/workflows/prova-diagnosi.yml
+          git commit -q -m "prova: commit che tocca un file di workflow"
+          if ERR=$(git push origin "HEAD:refs/heads/$PROVA" 2>&1); then
+            echo "::warning::push di una workflow RIUSCITO: ipotesi sbagliata, cancello $PROVA"
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$PROVA" >/dev/null 2>&1 || true
+          else
+            echo "codice di uscita: $?"
+            echo "::notice::push di una workflow rifiutato dal server: ${ERR//$'\n'/ | }"
           fi
 
-  modifica-codice:
-    name: PR che tocca solo documentazione
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Modifica a un file di documentazione
-        run: |
-          set -euo pipefail
-          echo "" >> docs/security/iocs.md
-          git --no-pager status --porcelain -unormal
-
-      - name: create-pull-request
-        id: pr
-        continue-on-error: true
-        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
-        with:
-          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/tocca-docs
-          base: ${{ github.ref_name }}
-          draft: true
-          title: 'prova: modifica alla documentazione (bozza)'
-          commit-message: 'prova: modifica alla documentazione'
-
-      - name: Esito e pulizia
-        if: always()
+      - name: 'Controllo: push di un commit che NON tocca una workflow'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          PROVA: prova/push-docs
         run: |
           set -uo pipefail
-          echo "::notice::modifica alla DOCUMENTAZIONE: esito del passo PR = ${{ steps.pr.outcome }}"
-          PR="$(gh pr list --state open --head prova/tocca-docs --json number --jq '.[0].number // empty')"
-          if [ -n "$PR" ]; then
-            gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
-              || echo "::warning::chiusura della bozza #$PR non riuscita"
+          git checkout -q -- .github/workflows/prova-diagnosi.yml 2>/dev/null || true
+          echo "" >> docs/security/iocs.md
+          git add docs/security/iocs.md
+          git commit -q -m "prova: commit che tocca solo documentazione"
+          if ERR=$(git push origin "HEAD:refs/heads/$PROVA" 2>&1); then
+            echo "::notice::push senza workflow riuscito: cancello $PROVA"
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$PROVA" >/dev/null 2>&1 \
+              || echo "::warning::cancellazione di $PROVA non riuscita"
+          else
+            echo "::warning::anche il push senza workflow e' fallito: ${ERR//$'\n'/ | }"
           fi
