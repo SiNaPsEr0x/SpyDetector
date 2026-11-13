@@ -1,16 +1,17 @@
 name: Prova delle diagnosi (temporanea)
 
-# Corsa TEMPORANEA: prova due diagnosi prima di applicare le correzioni.
-#  1) security-updates.yml fa un checkout shallow (fetch-depth di default = 1)
-#     e poi chiede a create-pull-request di pushare un branch nuovo: il server
-#     rifiuta gli aggiornamenti shallow, git esce 1 e la PR non nasce. Qui si
-#     riproduce il push da clone shallow. Se contro ogni attesa riuscisse, il
-#     branch viene cancellato nello stesso passo.
-#  2) gh attestation verify dentro il runner non aveva funzionato, con
-#     l'annotazione vuota. Qui si prova sull'APK gia' pubblicato, con permessi
-#     di sola lettura e con l'output appiattito su una riga perche' le
-#     annotazioni si troncano al primo a-capo.
-# Questo file viene eliminato appena le due risposte sono note.
+# Corsa TEMPORANEA per trovare perche' il passo "Apri/aggiorna la PR con gli
+# aggiornamenti" di security-updates.yml muore con
+# "The process '/usr/bin/git' failed with exit code 1" e nessuna PR e' mai nata.
+#
+# Due riproduzioni in parallelo, entrambe con create-pull-request vera:
+#   minima: checkout shallow + una modifica dentro add-paths
+#   reale : l'intera sequenza notturna (pin, threat DB, toolchain, build,
+#           verifica, Trivy) e poi la PR
+# Le PR nascono BOZZA (l'API rifiuta di fondere una bozza, quindi automerge non
+# puo' toccare main) e un passo finale le chiude ed elimina i branch.
+# gh attestation verify e' gia' stato provato: funziona sull'APK pubblicato.
+# Questo file viene eliminato appena la causa e' nota.
 
 on:
   push:
@@ -24,123 +25,170 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  shallow:
-    name: Push da clone shallow
+  minima:
+    name: Riproduzione minima
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
-      # nessuna fetch-depth: e' il default shallow di security-updates.yml
+      # nessuna fetch-depth: shallow come security-updates.yml
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Profondita' del clone
+      - name: Una modifica dentro add-paths
         run: |
           set -euo pipefail
-          echo "commit nel clone: $(git rev-list --count HEAD)"
-          if [ -f "$(git rev-parse --git-dir)/shallow" ]; then
-            echo "il clone E' shallow"
-          else
-            echo "il clone non e' shallow"
-          fi
+          echo "" >> docs/security/iocs.md
+          echo "modificato: docs/security/iocs.md"
 
-      - name: Sequenza git di create-pull-request, comando per comando
+      - name: create-pull-request con gli input di security-updates.yml
+        id: pr
+        continue-on-error: true
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
+          branch: prova/cpr-minima
+          base: main
+          draft: true
+          delete-branch: false
+          title: 'prova: riproduzione minima (bozza, da chiudere)'
+          commit-message: |
+            prova: riproduzione minima
+
+            File temporaneo di diagnosi, nessuna modifica reale.
+          labels: |
+            automation
+          add-paths: |
+            .github/workflows
+            tools/toolchain.env
+            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
+            data/threat-seed.txt
+            data/official-signatures.txt
+            docs/security/
+
+      - name: Esito e pulizia
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          BASE: ${{ github.ref_name }}
         run: |
           set -uo pipefail
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          # l'action sceglie un nome di branch temporaneo con un uuid
-          TMP="tmp-$(date +%s)-$$"
-          PROVA="prova/cpr-$GITHUB_RUN_ID"
-
-          prova() {
-            # esegue il comando e dice come e' finita: l'action non tollera
-            # codici diversi da zero su checkout, reset, rev-list, stash e push
-            ETICHETTA="$1"; shift
-            if OUT=$("$@" 2>&1); then
-              echo "ok    $ETICHETTA"
-            else
-              RC=$?
-              echo "::warning::$ETICHETTA uscita $RC: ${OUT//$'\n'/ | }"
-              echo "FALLITO $ETICHETTA" >> /tmp/esiti.txt
+          echo "::notice::minima: esito del passo PR = ${{ steps.pr.outcome }}"
+          for B in prova/cpr-minima prova/cpr-reale; do
+            PR="$(gh pr list --state open --head "$B" --json number --jq '.[0].number // empty')"
+            if [ -n "$PR" ]; then
+              echo "chiudo la bozza #$PR e cancello $B"
+              gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
+                || echo "::warning::chiusura di #$PR non riuscita"
             fi
-          }
+          done
 
-          prova "checkout -B $TMP HEAD" git checkout --progress -B "$TMP" HEAD --
-          # una modifica dentro uno degli add-paths di security-updates.yml
-          echo "" >> docs/security/iocs.md
-          prova "add dei percorsi" git add --force -- docs/security/ .github/workflows \
-            tools/toolchain.env data/threat-seed.txt data/official-signatures.txt \
-            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
-          prova "commit" git commit -q -m "prova: modifica per la diagnosi"
-          prova "stash push --include-untracked" git stash push --include-untracked
-          prova "checkout della base" git checkout --progress "$BASE" --
-          prova "reset --hard origin/$BASE" git reset --hard "origin/$BASE"
-          prova "checkout -B $PROVA" git checkout --progress -B "$PROVA" "$TMP" --
-          prova "rev-list --right-only --count" git rev-list --right-only --count \
-            "$BASE...$PROVA"
-          prova "push --force-with-lease" git push --force-with-lease origin \
-            "$PROVA:refs/heads/$PROVA"
-          prova "push semplice (confronto)" git push origin "$PROVA:refs/heads/$PROVA"
-
-          if git ls-remote --heads origin "$PROVA" | grep -q .; then
-            echo "il branch di prova esiste: lo cancello"
-            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$PROVA" >/dev/null 2>&1 \
-              || echo "::error::cancellazione di $PROVA fallita, va fatta a mano"
-          else
-            echo "nessun branch creato: la sequenza si e' fermata prima"
-          fi
-          if [ -f /tmp/esiti.txt ]; then
-            echo "::warning::comandi falliti: $(tr '\n' '; ' < /tmp/esiti.txt)"
-          else
-            echo "::notice::nessun comando della sequenza e' fallito"
-          fi
-
-  attestazioni:
-    name: Verifica dell'attestazione pubblicata
+  reale:
+    name: Riproduzione della corsa notturna
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      attestations: read
+      contents: write
+      pull-requests: write
     steps:
-      - name: Scarica l'APK pubblicato
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Versione action marketplace piu' recente
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          mkdir -p scarico
-          gh release download --pattern '*.apk' --dir scarico
-          APK="$(find scarico -maxdepth 1 -name '*.apk' | head -1)"
-          echo "apk=$APK" >> "$GITHUB_ENV"
-          echo "sha256=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-          echo "APK scaricato: $APK"
+        run: python3 scripts/update-pins.py
 
-      - name: gh attestation verify (come documentato nelle note)
+      - name: Knowledge base stalkerware (validata)
+        run: python3 scripts/update-threat-db.py
+
+      - name: Toolchain build (validator - scarica, prova e pinna)
+        run: |
+          set +e
+          python3 scripts/update-toolchain.py | tee toolchain-update.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          [ "$RC" = "0" ] || [ "$RC" = "3" ]
+
+      - name: Cache toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .toolchain
+          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
+          restore-keys: toolchain-${{ runner.os }}-
+
+      - name: Toolchain pinnato + hash verificato
+        run: ./tools/fetch-toolchain.sh
+
+      - name: BUILD + VERIFICA con le versioni nuove
+        run: |
+          ./build.sh
+          python3 scripts/verify-apk.py dist/*.apk
+
+      - name: Vulnerabilita' dipendenze + file (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          output: trivy-report.txt
+          exit-code: '0'
+
+      - name: Cosa cambierebbe
+        run: |
+          set -uo pipefail
+          # una modifica certa dentro add-paths, perche' la PR nasca comunque
+          echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
+          git --no-pager status --porcelain -unormal | head -20
+          echo "--- non ignorati e non tracciati ---"
+          git --no-pager status --porcelain -unormal | grep '^??' | head -10 || true
+
+      - name: create-pull-request come di notte
+        id: pr
+        continue-on-error: true
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
+          branch: prova/cpr-reale
+          base: main
+          draft: true
+          delete-branch: false
+          title: 'prova: riproduzione della corsa notturna (bozza, da chiudere)'
+          commit-message: |
+            prova: riproduzione notturna
+
+            File temporaneo di diagnosi, nessuna modifica reale.
+          labels: |
+            dependencies
+            security
+          add-paths: |
+            .github/workflows
+            tools/toolchain.env
+            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
+            data/threat-seed.txt
+            data/official-signatures.txt
+            docs/security/
+
+      - name: Esito e pulizia
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          echo "gh $(gh --version | head -1)"
-          if ERR=$(gh attestation verify "$apk" --repo "$GH_REPO" 2>&1); then
-            echo "::notice::verify riuscito: ${ERR//$'\n'/ | }"
-          else
-            echo "::warning::verify fallito (exit $?): ${ERR//$'\n'/ | }"
-          fi
-
-      - name: L'attestazione e' recuperabile via API per digest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          if ERR=$(gh api "repos/$GH_REPO/attestations/sha256:$sha256" \
-                   --jq '.attestations | length' 2>&1); then
-            echo "::notice::attestazioni trovate per digest: $ERR"
-          else
-            echo "::warning::api attestazioni fallita: ${ERR//$'\n'/ | }"
-          fi
+          echo "::notice::reale: esito del passo PR = ${{ steps.pr.outcome }}"
+          for B in prova/cpr-reale prova/cpr-minima; do
+            PR="$(gh pr list --state open --head "$B" --json number --jq '.[0].number // empty')"
+            if [ -n "$PR" ]; then
+              echo "chiudo la bozza #$PR e cancello $B"
+              gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
+                || echo "::warning::chiusura di #$PR non riuscita"
+            fi
+          done
