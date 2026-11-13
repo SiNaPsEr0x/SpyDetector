@@ -221,7 +221,9 @@ def inj_exported(d):
 
 
 def inj_leftover(d):
-    write(d, "app/src/main/java/it/spydetector/app/core/Report.java.orig", "residuo\n")
+    # percorso volutamente unico: se il repo ha gia' un residuo vero (ed e' il
+    # caso in cui il ciclo deve girare) l'iniezione deve restare distinguibile
+    write(d, "RESIDUO-DEL-SELFTEST.bak", "residuo\n")
 
 
 def inj_gitignore(d):
@@ -393,17 +395,36 @@ MANUAL = [
 # --------------------------------------------------------------------------
 # fasi
 # --------------------------------------------------------------------------
+def rule_counts(findings):
+    """conteggio per regola: le assert lavorano sui delta, non sugli assoluti"""
+    counts = {}
+    for f in findings:
+        counts[f.rule] = counts.get(f.rule, 0) + 1
+    return counts
+
+
+def baseline(dest):
+    """Stato della copia appena ripristinata: puo' legittimamente avere errori.
+
+    Il self-test gira in CI PRIMA del ciclo, su un repo che puo' essere rotto:
+    se pretendesse una baseline pulita fallirebbe proprio quando c'e' qualcosa
+    da riparare, e il soccorritore resterebbe paralizzato. Quindi la baseline
+    si misura e le assert confrontano i delta.
+    """
+    found = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
+    return rule_counts(found), [f for f in found if f.severity == gates.ERROR]
+
+
 def phase_fixable(dest, sha):
     print("\n=== fase A: difetti riparabili (%d) ===" % len(FIXABLE))
     # la copia pulita non deve avere errori: eventuali avvisi dipendono
     # dall'ambiente (es. shellcheck installato o no) e non contano qui
     reset_copy(dest, sha)
-    baseline = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
-    base_errors = [f for f in baseline if f.severity == gates.ERROR]
-    check("A/baseline senza errori", not base_errors,
-          "%s" % [str(f) for f in base_errors[:3]])
-    print("  --   baseline: %d errori, %d avvisi (dipendono dall'ambiente)"
-          % (len(base_errors), sum(1 for f in baseline if f.severity == gates.WARN)))
+    base_counts, base_errors = baseline(dest)
+    print("  --   baseline: %d errori (preesistenti: %s)"
+          % (len(base_errors), sorted(base_counts)[:4] or "nessuno"))
+    if base_errors:
+        print("  --   il repo non e' pulito: le assert confrontano i delta")
 
     applied_rules = set()
     for name, fix_id, gate_rule, inject in FIXABLE:
@@ -412,10 +433,13 @@ def phase_fixable(dest, sha):
         stage(dest)
         ctx = gates.Ctx(root=dest)
         before = gates.run_gates(ctx, skip=("build",), quiet=True)
-        detected = [f for f in before if f.rule == gate_rule]
-        if not check("A/%s: rilevato (%s)" % (name, gate_rule), detected,
-                     "nessuna finding %s; viste: %s"
-                     % (gate_rule, sorted({f.rule for f in before})[:8])):
+        before_counts = rule_counts(before)
+        if not check("A/%s: rilevato (%s)" % (name, gate_rule),
+                     before_counts.get(gate_rule, 0) > base_counts.get(gate_rule, 0),
+                     "nessuna finding nuova %s (baseline=%d, ora=%d); viste: %s"
+                     % (gate_rule, base_counts.get(gate_rule, 0),
+                        before_counts.get(gate_rule, 0),
+                        sorted({f.rule for f in before})[:8])):
             continue
         # il pin delle action serve rete: lo escludiamo dal test
         patcher, rules = autofix.apply_fixes(ctx, before, severity=gates.WARN,
@@ -423,10 +447,13 @@ def phase_fixable(dest, sha):
         applied_rules.update(rules)
         after = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
         left = [f for f in after if f.rule == gate_rule]
+        after_counts = rule_counts(after)
         ok = check("A/%s: riparato da %s" % (name, fix_id),
-                   bool(patcher.changes) and not left and fix_id in rules,
-                   "cambiamenti=%d, residui=%s, regole=%s"
-                   % (len(patcher.changes), [str(f) for f in left][:2], rules[:6]))
+                   bool(patcher.changes) and fix_id in rules
+                   and after_counts.get(gate_rule, 0) <= base_counts.get(gate_rule, 0),
+                   "cambiamenti=%d, regola %s: baseline=%d ora=%d, regole=%s"
+                   % (len(patcher.changes), gate_rule, base_counts.get(gate_rule, 0),
+                      after_counts.get(gate_rule, 0), rules[:6]))
         if not ok:
             for f in left[:4]:
                 print("        residuo: %s" % f)
@@ -444,23 +471,33 @@ def phase_fixable(dest, sha):
     stage(dest)
     result = selfheal.run_loop(max_rounds=4, root=dest, skip_gates=("build",),
                                autofix_skip={"wf-pin"}, verbose=False)
-    left_rules = {f["rule"] for f in result["remaining"]}
+    final_counts = {}
+    for f in result["remaining"]:
+        final_counts[f["rule"]] = final_counts.get(f["rule"], 0) + 1
     expected = {r for _n, _f, r, _i in FIXABLE}
     final_errors = result["final"].get("errors", 0)
-    check("A2/nessuna delle regole iniettate resta aperta",
-          not (left_rules & expected),
-          "restano: %s" % sorted(left_rules & expected))
+    sopra = {r for r in expected if final_counts.get(r, 0) > base_counts.get(r, 0)}
+    check("A2/nessuna regola iniettata resta sopra la baseline", not sopra,
+          "restano sopra: %s (%s)" % (sorted(sopra),
+                                      {r: final_counts.get(r, 0) for r in sopra}))
     check("A2/errori non peggiori della baseline", final_errors <= len(base_errors),
           "finali=%d baseline=%d" % (final_errors, len(base_errors)))
-    check("A2/ciclo chiuso verde", result["status"] in (selfheal.HEALED,
-                                                        selfheal.CLEAN),
-          "stato=%s, errori=%d" % (result["status"], final_errors))
+    if base_errors:
+        check("A2/ciclo non regredito (baseline gia' sporca)",
+              result["status"] not in (selfheal.REGRESSED, selfheal.ERROR),
+              "stato=%s, errori=%d" % (result["status"], final_errors))
+    else:
+        check("A2/ciclo chiuso verde", result["status"] in (selfheal.HEALED,
+                                                            selfheal.CLEAN),
+              "stato=%s, errori=%d" % (result["status"], final_errors))
     for f in result["remaining"][:5]:
         print("        residuo: %(rule)s %(path)s %(message).80s" % f)
     again = selfheal.run_loop(max_rounds=2, root=dest, skip_gates=("build",),
                               autofix_skip={"wf-pin"}, verbose=False)
-    check("A2/secondo giro = niente da fare (idempotente)",
-          again["status"] == selfheal.CLEAN and not again["changed_files"],
+    idem = not again["changed_files"]
+    if not base_errors:
+        idem = idem and again["status"] == selfheal.CLEAN
+    check("A2/secondo giro = niente da fare (idempotente)", idem,
           "stato=%s, file=%s" % (again["status"], again["changed_files"]))
     check("A2/report e riepilogo prodotti",
           bool(result["rounds"]) and "Self-healing" in selfheal.markdown(result))
@@ -468,6 +505,10 @@ def phase_fixable(dest, sha):
 
 def phase_manual(dest, sha):
     print("\n=== fase B: difetti non riparabili (%d) ===" % len(MANUAL))
+    reset_copy(dest, sha)
+    base_counts, base_errors = baseline(dest)
+    if base_errors:
+        print("  --   baseline con %d errori: assert sui delta" % len(base_errors))
     for name, rule, inject, net_fix in MANUAL:
         if rule == "yaml-invalid" and gates._yaml is None:
             print("  --   B/%s: saltato (pyyaml non installato)" % name)
@@ -478,8 +519,12 @@ def phase_manual(dest, sha):
         ctx = gates.Ctx(root=dest)
         found = gates.run_gates(ctx, skip=("build",), quiet=True)
         hit = [f for f in found if f.rule == rule]
-        if not check("B/%s: rilevato (%s)" % (name, rule), hit,
-                     "regole viste: %s" % sorted({f.rule for f in found})[:8]):
+        before_n = rule_counts(found).get(rule, 0)
+        if not check("B/%s: rilevato (%s)" % (name, rule),
+                     before_n > base_counts.get(rule, 0),
+                     "nessuna finding nuova %s (baseline=%d, ora=%d); viste: %s"
+                     % (rule, base_counts.get(rule, 0), before_n,
+                        sorted({f.rule for f in found})[:8])):
             continue
         check("B/%s: %s" % (name, "correzione possibile solo con la rete"
                             if net_fix else "nessuna correzione automatica promessa"),
@@ -490,10 +535,12 @@ def phase_manual(dest, sha):
                                               verbose=False)
         # il difetto deve restare dov'e': niente patch inventate
         still = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
+        still_n = rule_counts(still).get(rule, 0)
         check("B/%s: il difetto resta e non viene toccato" % name,
-              any(f.rule == rule for f in still),
-              "scomparso dopo le correzioni (file toccati: %s)"
-              % sorted({c["path"] for c in patcher.changes})[:3])
+              still_n == before_n,
+              "da %d a %d finding %s dopo le correzioni (file toccati: %s)"
+              % (before_n, still_n, rule,
+                 sorted({c["path"] for c in patcher.changes})[:3]))
 
 
 def phase_regression(dest, sha):
