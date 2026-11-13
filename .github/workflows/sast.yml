@@ -16,6 +16,10 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: sast-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   semgrep:
     name: Semgrep (java, python, bash, actions)

@@ -1,0 +1,304 @@
+name: Self-Heal
+
+# Ciclo chiuso di auto-correzione del repository:
+#
+#   gate di qualita'  ->  correzioni deterministiche  ->  di nuovo gate
+#                          (fino a N round)
+#                                    |
+#                                    v
+#              PR con le correzioni  ->  la CI le ricontrolla tutte
+#                                    |            (build, SAST, CodeQL,
+#                                    v             segreti, malware, gate)
+#              automerge se e solo se ogni check e' verde
+#                                    |
+#                                    v
+#              se un check fallisce, auto-fix-on-failure.yml riavvia
+#              questo ciclo (con un tetto ai tentativi, poi apre una issue)
+#
+# Cosa corregge da solo (scripts/autofix.py): solo trasformazioni deterministiche
+# e idempotenti — whitespace/newline/BOM/CRLF, tab, import inutilizzati, shebang
+# e strict mode degli script, permessi di esecuzione, `permissions:` e
+# `concurrency:` mancanti nelle workflow, android:exported, voci duplicate nei
+# data/, ThreatDbGenerated.java rigenerato, workflow non documentate, pin delle
+# action (via update-pins.py), residui di merge.
+#
+# Cosa NON corregge mai: tutto cio' che richiederebbe di decidere al posto tuo
+# (un errore di compilazione, un permesso pericoloso, un check non registrato,
+# una script injection, un'affermazione di privacy falsa). In quei casi apre una
+# issue con il report invece di inventare una patch.
+#
+# Sicurezza: se un round di correzioni AUMENTA gli errori, l'albero di lavoro
+# viene ripristinato con git (--revert-on-regression) e non viene aperta nessuna
+# PR. Una correzione automatica che peggiora le cose non sopravvive.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Branch da riparare (vuoto = branch del dispatch)'
+        required: false
+      max-rounds:
+        description: 'Round massimi di gate -> correzione'
+        required: false
+        default: '3'
+      max-attempts:
+        description: 'Tentativi massimi sullo stesso branch prima di aprire una issue'
+        required: false
+        default: '3'
+      with-build:
+        description: 'Compila e verifica anche l APK (piu lento, piu completo)'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      improve:
+        description: 'Applica anche i miglioramenti non bloccanti'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+      dry-run:
+        description: 'Mostra le correzioni senza scrivere ne aprire PR'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+      reason:
+        description: 'Motivo (compare nella PR/issue)'
+        required: false
+  schedule:
+    # ogni notte alle 05:38 UTC (07:38 a Milano), dopo gli aggiornamenti
+    - cron: '38 5 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: self-heal-${{ inputs.target || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    name: Ripara e ricontrolla
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # branch indicato nell'input, altrimenti quello del dispatch/schedule
+          ref: ${{ inputs.target || github.ref }}
+          fetch-depth: 0
+
+      - name: Parametri della corsa
+        id: cfg
+        env:
+          # gli input passano da env: mai interpolati in uno script
+          SPD_TARGET: ${{ inputs.target }}
+          SPD_MAX_ROUNDS: ${{ inputs.max-rounds }}
+          SPD_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+          SPD_WITH_BUILD: ${{ inputs.with-build }}
+          SPD_IMPROVE: ${{ inputs.improve }}
+          SPD_DRY_RUN: ${{ inputs.dry-run }}
+          SPD_REASON: ${{ inputs.reason }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          BASE="${SPD_TARGET:-$REF_NAME}"
+          BASE="${BASE#refs/heads/}"
+          # default per gli inneschi senza input (schedule)
+          : "${SPD_MAX_ROUNDS:=3}"
+          : "${SPD_MAX_ATTEMPTS:=3}"
+          : "${SPD_WITH_BUILD:=true}"
+          : "${SPD_IMPROVE:=false}"
+          : "${SPD_DRY_RUN:=false}"
+          REASON="${SPD_REASON:-$EVENT}"
+          SLUG="$(printf '%s' "$BASE" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')"
+          {
+            echo "base=$BASE"
+            echo "slug=$SLUG"
+            echo "branch=fix/self-heal/$SLUG"
+            echo "max-rounds=$SPD_MAX_ROUNDS"
+            echo "max-attempts=$SPD_MAX_ATTEMPTS"
+            echo "with-build=$SPD_WITH_BUILD"
+            echo "improve=$SPD_IMPROVE"
+            echo "dry-run=$SPD_DRY_RUN"
+            echo "reason=$REASON"
+          } >> "$GITHUB_OUTPUT"
+          echo "branch base: $BASE -> branch di correzione: fix/self-heal/$SLUG"
+
+      - name: Tentativi gia' fatti su questo branch
+        id: attempts
+        env:
+          HEAL_BRANCH: fix/self-heal/${{ steps.cfg.outputs.slug }}
+        run: |
+          set -euo pipefail
+          COUNT=0
+          if git ls-remote --exit-code --heads origin "$HEAL_BRANCH" >/dev/null 2>&1; then
+            git fetch -q origin "$HEAL_BRANCH"
+            # ogni passaggio del ciclo lascia il marker [self-heal] nel commit
+            COUNT=$(git log --oneline --grep '\[self-heal\]' FETCH_HEAD | wc -l | tr -d ' ')
+            echo "il branch $HEAL_BRANCH esiste gia': $COUNT tentativi precedenti"
+          fi
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          cache: 'true'
+
+      - name: Verifica che il meccanismo di correzione funzioni
+        run: python3 scripts/test-selfheal.py
+
+      - name: Ciclo di self-healing
+        id: heal
+        uses: ./.github/actions/self-heal
+        with:
+          max-rounds: ${{ steps.cfg.outputs.max-rounds }}
+          with-build: ${{ steps.cfg.outputs.with-build }}
+          improve: ${{ steps.cfg.outputs.improve }}
+          dry-run: ${{ steps.cfg.outputs.dry-run }}
+
+      - name: Esito e testi per PR/issue
+        id: outcome
+        env:
+          STATUS: ${{ steps.heal.outputs.status }}
+          HEALED: ${{ steps.heal.outputs.healed }}
+          IMPROVED: ${{ steps.heal.outputs.improved }}
+          ERRORS: ${{ steps.heal.outputs.errors }}
+          WARNINGS: ${{ steps.heal.outputs.warnings }}
+          CHANGED: ${{ steps.heal.outputs.changed-files }}
+          MANUAL: ${{ steps.heal.outputs.manual }}
+          ROUNDS: ${{ steps.heal.outputs.rounds }}
+          ATTEMPTS: ${{ steps.attempts.outputs.count }}
+          MAX_ATTEMPTS: ${{ steps.cfg.outputs.max-attempts }}
+          DRY_RUN: ${{ steps.cfg.outputs.dry-run }}
+          BASE: ${{ steps.cfg.outputs.base }}
+          REASON: ${{ steps.cfg.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${ATTEMPTS:=0}"
+          : "${MAX_ATTEMPTS:=3}"
+          BUDGET_OK=true
+          if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+            BUDGET_OK=false
+            echo "tentativi esauriti ($ATTEMPTS/$MAX_ATTEMPTS): non riprovo"
+          fi
+
+          # la PR si apre solo se il ciclo ha chiuso verde: una correzione
+          # parziale che non risolve gli errori finisce in una issue
+          OPEN_PR=false
+          if [ "$DRY_RUN" != "true" ] && [ "$IMPROVED" = "true" ] \
+             && [ "$HEALED" = "true" ] && [ "$BUDGET_OK" = "true" ]; then
+            OPEN_PR=true
+          fi
+          NEEDS_HUMAN=false
+          if [ "$DRY_RUN" != "true" ] && { [ "$STATUS" = "stuck" ] \
+             || [ "$STATUS" = "regressed" ] || [ "$ERRORS" != "0" ] \
+             || [ "$BUDGET_OK" = "false" ]; }; then
+            NEEDS_HUMAN=true
+          fi
+          {
+            echo "open-pr=$OPEN_PR"
+            echo "needs-human=$NEEDS_HUMAN"
+            echo "budget-ok=$BUDGET_OK"
+          } >> "$GITHUB_OUTPUT"
+
+          # corpo della PR
+          {
+            echo "Correzioni automatiche prodotte dal ciclo di self-healing."
+            echo ""
+            echo "- stato: **$STATUS** dopo $ROUNDS round"
+            echo "- errori residui: $ERRORS — avvisi residui: $WARNINGS"
+            echo "- file modificati: $CHANGED"
+            echo "- innesco: $REASON"
+            echo "- corsa: $RUN_URL"
+            echo ""
+            echo "Ogni modifica e' una trasformazione deterministica e idempotente"
+            echo "(vedi \`scripts/autofix.py --list\`). Questa PR viene riesaminata da"
+            echo "tutta la CI: se un check fallisce, \`auto-fix-on-failure.yml\` riavvia"
+            echo "il ciclo; \`automerge.yml\` la unisce solo se tutto e' verde."
+            echo ""
+            if [ -f build/selfheal.md ]; then cat build/selfheal.md; fi
+          } > build/pr-body.md
+
+          # corpo della issue
+          {
+            echo "Il ciclo di self-healing non e' riuscito a chiudere verde."
+            echo ""
+            echo "| cosa | valore |"
+            echo "|---|---|"
+            echo "| stato | \`$STATUS\` |"
+            echo "| branch | \`$BASE\` |"
+            echo "| round | $ROUNDS |"
+            echo "| errori residui | $ERRORS |"
+            echo "| tentativi sul branch | $ATTEMPTS/$MAX_ATTEMPTS |"
+            echo "| regole non automatiche | ${MANUAL:-nessuna} |"
+            echo "| innesco | $REASON |"
+            echo ""
+            echo "Questi problemi richiedono una decisione umana: il ciclo non"
+            echo "inventa patch. Report:"
+            echo ""
+            if [ -f build/selfheal.md ]; then cat build/selfheal.md; fi
+            echo ""
+            echo "Corsa: $RUN_URL"
+          } > build/issue.md
+
+          echo "esito: stato=$STATUS PR=$OPEN_PR issue=$NEEDS_HUMAN"
+
+      - name: Apri o aggiorna la PR con le correzioni
+        if: steps.outcome.outputs.open-pr == 'true'
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          branch: fix/self-heal/${{ steps.cfg.outputs.slug }}
+          base: ${{ steps.cfg.outputs.base }}
+          delete-branch: true
+          title: "fix: correzioni automatiche dei gate di qualita' [self-heal]"
+          body-path: build/pr-body.md
+          commit-message: |
+            fix: correzioni automatiche dei gate di qualita' [self-heal]
+
+            Ciclo gate -> correzione -> verifica di scripts/selfheal.py.
+            Solo trasformazioni deterministiche e idempotenti; la CI
+            ricontrolla tutto prima dell'eventuale merge.
+          labels: |
+            self-heal
+            automation
+
+      - name: Etichette e issue quando serve una persona
+        if: steps.outcome.outputs.needs-human == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATUS: ${{ steps.heal.outputs.status }}
+          ERRORS: ${{ steps.heal.outputs.errors }}
+          BASE: ${{ steps.cfg.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create self-heal --color D93F0B --force \
+            --description 'Segnalato dal ciclo di self-healing' >/dev/null 2>&1 || true
+          TITLE="self-heal: $STATUS su $BASE ($ERRORS errori da sistemare a mano)"
+          EXISTING=$(gh issue list --state open --label self-heal --limit 100 \
+                     --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "aggiorno la issue #$EXISTING"
+            {
+              echo "Nuova corsa del ciclo: $RUN_URL"
+              echo ""
+              cat build/issue.md
+            } > build/issue-comment.md
+            gh issue comment "$EXISTING" --body-file build/issue-comment.md
+          else
+            gh issue create --title "$TITLE" --label self-heal \
+              --body-file build/issue.md
+          fi
+
+      - name: Fallisci se il ciclo non ha chiuso verde
+        if: steps.heal.outputs.healed != 'true'
+        env:
+          STATUS: ${{ steps.heal.outputs.status }}
+          ERRORS: ${{ steps.heal.outputs.errors }}
+        run: |
+          echo "::error::self-heal chiuso con stato $STATUS e $ERRORS errori residui"
+          exit 1

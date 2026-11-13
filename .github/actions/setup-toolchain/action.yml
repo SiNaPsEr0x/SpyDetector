@@ -1,0 +1,59 @@
+name: 'Setup toolchain SpyDetector'
+description: >-
+  Prepara l'ambiente: Python, dipendenze di analisi (scripts/requirements.txt),
+  cache di .toolchain e toolchain pinnata con SHA256 verificato
+  (tools/fetch-toolchain.sh). E' la stessa definizione
+  usata da CI, Release, Malware scan, Security updates e Self-Heal: se cambia
+  il modo di preparare l'ambiente, cambia per tutti i pipeline insieme.
+inputs:
+  python-version:
+    description: 'Versione di Python da installare'
+    required: false
+    default: '3.12'
+  cache:
+    description: "Usa la cache di .toolchain ('true' o 'false')"
+    required: false
+    default: 'true'
+outputs:
+  java:
+    description: 'Percorso del binario java della toolchain pinnata'
+    value: ${{ steps.toolchain.outputs.java }}
+  apksigner:
+    description: 'Percorso del jar apksigner della toolchain pinnata'
+    value: ${{ steps.toolchain.outputs.apksigner }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # pyyaml (scripts/requirements.txt): serve ai gate per la validazione
+    # completa delle workflow. Senza, i gate girano lo stesso con una nota.
+    - name: Dipendenze di analisi
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --quiet --disable-pip-version-check\
+          -r scripts/requirements.txt
+
+    - name: Cache toolchain (.toolchain)
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .toolchain
+        key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
+        restore-keys: toolchain-${{ runner.os }}-
+
+    - name: Toolchain pinnata + hash verificato
+      id: toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        ./tools/fetch-toolchain.sh
+        JAVA=.toolchain/jdk/bin/java
+        [ -x "$JAVA" ] || JAVA=java
+        echo "java=$JAVA" >> "$GITHUB_OUTPUT"
+        echo "apksigner=.toolchain/lib/apksigner.jar" >> "$GITHUB_OUTPUT"

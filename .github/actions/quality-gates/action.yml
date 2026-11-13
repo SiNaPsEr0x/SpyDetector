@@ -1,0 +1,113 @@
+name: 'Gate di qualita'
+description: >-
+  Esegue scripts/gates.py: controlli su codice Java/Python/shell, workflow e
+  action GitHub (pin SHA, permessi, script injection, download non verificati),
+  AndroidManifest e risorse, knowledge base stalkerware, documentazione e
+  igiene dei file. Con with-build compila anche l'APK e lo verifica.
+  Pubblica il report JSON come artifact e il riepilogo nel job summary.
+inputs:
+  python-version:
+    description: 'Versione di Python usata per i gate'
+    required: false
+    default: '3.12'
+  gates:
+    description: 'Gate da eseguire (separati da spazio); vuoto = tutti'
+    required: false
+    default: ''
+  with-build:
+    description: "Includi build.sh + verify-apk.py ('true' o 'false')"
+    required: false
+    default: 'false'
+  fail-on:
+    description: "Gravita' minima che fa fallire lo step (error|warn|info)"
+    required: false
+    default: 'error'
+  upload:
+    description: "Carica il report come artifact ('true' o 'false')"
+    required: false
+    default: 'true'
+  artifact-name:
+    description: 'Nome dell artifact con il report'
+    required: false
+    default: 'quality-gates-report'
+outputs:
+  status:
+    description: 'ok oppure failed'
+    value: ${{ steps.gates.outputs.status }}
+  errors:
+    description: 'Numero di errori trovati'
+    value: ${{ steps.gates.outputs.errors }}
+  warnings:
+    description: 'Numero di avvisi trovati'
+    value: ${{ steps.gates.outputs.warnings }}
+  fixable:
+    description: 'Regole di correzione automatica applicabili'
+    value: ${{ steps.gates.outputs.fixable }}
+  exit-code:
+    description: 'Codice di uscita di scripts/gates.py'
+    value: ${{ steps.gates.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # pyyaml e' l'unica dipendenza (scripts/requirements.txt): serve per la
+    # validazione completa delle workflow. I gate girano anche senza, con una
+    # nota nel report.
+    - name: Dipendenze di analisi
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --quiet --disable-pip-version-check\
+          -r scripts/requirements.txt
+
+    - name: Esegui i gate
+      id: gates
+      shell: bash
+      env:
+        # gli input passano da env, mai interpolati nello script (script injection)
+        SPD_GATES: ${{ inputs.gates }}
+        SPD_WITH_BUILD: ${{ inputs.with-build }}
+        SPD_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail    # senza -e: serve il codice di uscita dei gate
+        ARGS=(--json build/gates.json --step-summary --fail-on "$SPD_FAIL_ON")
+        for gate in $SPD_GATES; do
+          ARGS+=(--gate "$gate")
+        done
+        if [ "$SPD_WITH_BUILD" = "true" ]; then
+          ARGS+=(--with-build)
+        fi
+        python3 scripts/gates.py "${ARGS[@]}"
+        RC=$?
+        echo "exit-code=$RC" >> "$GITHUB_OUTPUT"
+        python3 - <<'PY'
+        import json
+        import os
+
+        out = os.environ["GITHUB_OUTPUT"]
+        try:
+            summary = json.load(open("build/gates.json", encoding="utf-8"))["summary"]
+        except Exception as exc:                                  # noqa: BLE001
+            print("report non leggibile: %s" % exc)
+            summary = {"ok": False, "errors": -1, "warnings": -1, "fixable": []}
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write("status=%s\n" % ("ok" if summary.get("ok") else "failed"))
+            fh.write("errors=%s\n" % summary.get("errors", 0))
+            fh.write("warnings=%s\n" % summary.get("warnings", 0))
+            fh.write("fixable=%s\n" % ",".join(summary.get("fixable", [])))
+        PY
+        exit "$RC"
+
+    - name: Carica il report
+      if: inputs.upload == 'true' && always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: build/gates.json
+        if-no-files-found: ignore
+        retention-days: 14

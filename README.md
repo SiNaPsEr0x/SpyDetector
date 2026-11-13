@@ -4,8 +4,9 @@
 pochi secondi: punteggio di rischio da 0 a 100 e, per ogni problema, il motivo e
 cosa fare.
 
-Tutto avviene **sul telefono**: l'app non ha il permesso Internet e non manda
-fuori nessun dato.
+L'analisi avviene **sul telefono**: nessun dato tuo viene inviato, nessuna
+statistica, nessun account. La rete serve solo per due cose che vedi a schermo:
+aggiornare l'elenco delle firme ufficiali e proporti una versione nuova dell'app.
 
 <p align="center">
   <img src="docs/preview.png" alt="SpyDetector: punteggio di rischio, contatori per gravità e aree analizzate" width="900">
@@ -63,8 +64,22 @@ per vedere **la prova** e **la cosa da fare**.
 
 ## Privacy
 
-Nessun permesso di rete, nessun account, nessuna pubblicità, nessuna statistica.
-L'elenco delle app installate viene letto solo in locale per l'analisi.
+L'analisi è **locale**: nessun account, nessuna pubblicità, nessuna statistica.
+L'elenco delle app installate, i permessi e le impostazioni vengono letti solo
+sul telefono e non lasciano il dispositivo.
+
+L'app ha il permesso `INTERNET` per due sole funzioni, entrambe verso GitHub ed
+entrambe mostrate a schermo mentre girano:
+
+| Cosa fa | Dove | Perché |
+|---|---|---|
+| scarica `data/official-signatures.txt` | `raw.githubusercontent.com` | riconoscere le app ufficiali con il database aggiornato, senza ricompilare l'APK |
+| controlla se esiste una versione nuova e propone di scaricarla | `api.github.com` + Releases | aggiornare l'app senza store |
+
+Sono richieste **GET** che non contengono identificativi del dispositivo né
+l'elenco delle app installate. L'unico dato inviato è lo `User-Agent`
+(`SpyDetector/<livello API Android>`). Senza rete l'app funziona lo stesso: usa
+il database incorporato e salta l'aggiornamento.
 
 ## Per chi sviluppa
 
@@ -75,7 +90,39 @@ L'APK si compila senza Android Studio:
 ./build.sh                    # crea dist/SpyDetector-v<versione>-release.apk
 ```
 
-Dettagli su build, automazione e controlli di sicurezza:
+Controlli e auto-correzione (gli stessi che girano in CI):
+
+```bash
+python3 scripts/gates.py                  # tutti i gate di qualita'
+python3 scripts/gates.py --with-build     # + compila l'APK e lo verifica
+python3 scripts/autofix.py --dry-run      # cosa verrebbe corretto, senza scrivere
+python3 scripts/selfheal.py               # ciclo: gate -> correzione -> gate
+python3 scripts/test-selfheal.py          # self-test del meccanismo
+```
+
+**Il repository si corregge da solo.** Ogni notte (e ogni volta che una pipeline
+fallisce) `self-heal.yml` esegue i gate, applica correzioni deterministiche e
+rida i controlli, poi apre una PR che tutta la CI riesamina: se un check
+fallisce, il ciclo riparte; se tutto e' verde, `automerge.yml` la unisce e
+`release.yml` ricostruisce l'APK. Corregge da solo solo cio' che e' meccanico
+(whitespace, import inutilizzati, `permissions:` mancanti, pin delle action,
+codice generato non allineato): per tutto il resto apre una issue invece di
+inventare una patch. Se una correzione peggiora le cose, viene annullata con
+`git reset`.
+
+Altri script utili:
+
+| script | cosa fa |
+|---|---|
+| `scripts/release.sh 1.1.0` | aggiorna `VERSION`, pusha e fa pubblicare la release alla CI |
+| `scripts/update-threat-db.py` | rigenera `ThreatDbGenerated.java` da `data/threat-seed.txt` (`--check` verifica senza scrivere) |
+| `scripts/update-pins.py` | pinna le action GitHub al commit SHA della release compatibile |
+| `scripts/update-toolchain.py` | valida e pinna la toolchain di build (npm/PyPI + SHA256) |
+| `scripts/check-iocs.py` | indicatori di compromissione dei pacchetti usati per la build |
+| `scripts/verify-apk.py` | verifica che l'APK costruito sia installabile e contenga il codice atteso |
+| `scripts/make-preview.py` | rigenera `docs/preview.png` |
+
+Dettagli su build, automazione, ciclo di self-healing e controlli di sicurezza:
 [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Licenza
