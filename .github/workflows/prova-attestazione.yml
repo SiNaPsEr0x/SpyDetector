@@ -1,0 +1,81 @@
+name: Prova dell'attestazione SBOM
+
+# Corsa TEMPORANEA di verifica: dimostra che actions/attest — che sostituisce
+# la deprecata actions/attest-sbom — funziona con i permessi di questo repo
+# PRIMA che la release dipenda da lei. Una attestazione fallita in release.yml
+# arriverebbe dopo la pulizia delle release precedenti, quindi si prova qui.
+# Questo file viene eliminato subito dopo la prova.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  packages: read
+
+concurrency:
+  group: prova-attestazione
+  cancel-in-progress: true
+
+jobs:
+  prova:
+    name: Attestazione SBOM con actions/attest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Toolchain di build
+        id: tc
+        uses: ./.github/actions/setup-toolchain
+        with:
+          python-version: '3.12'
+          cache: 'true'
+
+      - name: Build APK di prova
+        run: ./build.sh
+
+      - name: Percorso dell'APK
+        id: apk
+        run: |
+          set -euo pipefail
+          APK="$(ls dist/*.apk | head -1)"
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          echo "APK di prova: $APK"
+
+      - name: SBOM (SPDX) dell'APK
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          file: ${{ steps.apk.outputs.apk }}
+          format: spdx-json
+          output-file: ${{ steps.apk.outputs.apk }}.spdx.json
+          artifact-name: ''
+
+      - name: Attestazione SBOM con actions/attest
+        id: attesta
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.apk.outputs.apk }}
+          sbom-path: ${{ steps.apk.outputs.apk }}.spdx.json
+
+      - name: L'attestazione si recupera e si verifica
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          APK: ${{ steps.apk.outputs.apk }}
+          URL: ${{ steps.attesta.outputs.attestation-url }}
+        run: |
+          set -uo pipefail
+          echo "url dell'attestazione: $URL"
+          # la pubblicazione non e' immediata: qualche tentativo, poi si arrende
+          for i in 1 2 3 4 5; do
+            if gh attestation verify "$APK" --repo "$GH_REPO"; then
+              echo "attestazione verificata al tentativo $i"
+              exit 0
+            fi
+            echo "tentativo $i fallito, riprovo tra 15s"
+            sleep 15
+          done
+          echo "::error::attestazione non verificabile dopo 5 tentativi"
+          exit 1
