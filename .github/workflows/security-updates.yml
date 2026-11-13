@@ -16,6 +16,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # serve all'ultimo passo: quando gli aggiornamenti non si possono consegnare
+  # apre una issue con la patch, invece di perdere il lavoro della notte
+  issues: write
 
 concurrency:
   group: security-updates
