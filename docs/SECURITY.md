@@ -115,38 +115,40 @@ una issue con il report, invece di inventare una patch:
 | esecuzione di codice arbitrario | le correzioni sono regole fisse in `scripts/autofix.py`: nessun LLM, nessun download, nessuna action nuova; la rete serve solo a `update-pins.py` (API GitHub) |
 | il correttore si rompe | `scripts/test-selfheal.py` gira in CI prima del ciclo: difetti iniettati in una copia del repo, deve ripararli tutti |
 
-### Il segreto opzionale `SPD_PR_TOKEN`
+### Token, PR del bot e il segreto `SPD_PR_TOKEN`
 
-GitHub non innesca workflow per gli eventi generati dal `GITHUB_TOKEN` di una
-corsa (regola anti-ricorsione; le eccezioni sono `workflow_dispatch` e
-`repository_dispatch`). Il ciclo tocca questo limite in due punti:
+Il ciclo apre e fonde PR con l'identita' di GitHub Actions, e qui GitHub mette
+tre ostacoli diversi. Sono stati verificati tutti e tre in CI, non dedotti.
 
-| punto | cosa succede col solo `GITHUB_TOKEN` | come viene chiuso |
+| ostacolo | cosa succede | come viene chiuso |
 |---|---|---|
-| `self-heal.yml` apre la PR | sulla PR non parte **nessun** check e `automerge.yml` non la vede | la CI viene riavviata a mano con `gh workflow run ci.yml --ref fix/self-heal/<slug>`; il merge resta a una persona |
-| `automerge.yml` fonde la PR | i push verso main non partono: niente Release, niente scansioni | `automerge.yml` riavvia esplicitamente `release.yml` e `malware-scan.yml` |
+| gli eventi generati dal `GITHUB_TOKEN` non innescano workflow (eccezioni: `workflow_dispatch` e `repository_dispatch`) | un merge automatico non fa partire ne' Release ne' le scansioni su main | `automerge.yml` riavvia esplicitamente `release.yml` e `malware-scan.yml`, e solo se la PR era verso il branch predefinito. Verificato: v0.0.7 e v0.0.8 pubblicate dopo i merge di #17 e #19 |
+| senza checkout `gh` non determina la repo (`GITHUB_REPOSITORY` non gli basta) | il riavvio falliva e il passo risultava comunque verde | `GH_REPO` esplicito nei passi con `gh` + gate `wf-gh-no-repo` |
+| **Settings → Actions → General → “Allow GitHub Actions to create and approve pull requests”** disattivato | `GitHub Actions is not permitted to create or approve pull requests`: la PR non nasce proprio | il ciclo non perde nulla (`continue-on-error`, issue `self-heal` col branch curato, `::error::`). Con la spunta attiva la PR nasce: verificato su #20, autore `app/github-actions` |
 
-C'e' un terzo ostacolo, che non dipende dal token ma da un'impostazione della
-repo: **Settings → Actions → General → Workflow permissions → “Allow GitHub
-Actions to create and approve pull requests”**. Se resta disattivata, creare la
-PR viene rifiutato (`GitHub Actions is not permitted to create or approve pull
-requests`) anche con `pull-requests: write`. Il ciclo non perde comunque nulla:
-`create-pull-request` pusha il branch prima di creare la PR, quindi
-`self-heal.yml` prosegue con `continue-on-error`, apre una issue etichettata
-`self-heal` (una sola per branch) con il nome del branch curato e le istruzioni,
-e scrive un `::error::` nelle annotazioni.
+La spunta **non** toglie un ultimo cancello: le corse innescate da
+`pull_request` su una PR aperta col token di corsa restano in `action_required`,
+cioe' aspettano che qualcuno con accesso in scrittura prema **Approve workflows
+to run**. Su #20 erano CI, Secret Scanning e Automerge; approvate con
 
-Per chiudere **anche** il primo punto senza intervento umano serve quindi una
-delle due cose: quella spunta, oppure un PAT nel
-segreto `SPD_PR_TOKEN` (fine-grained: solo questa repo, `Contents` e
-`Pull requests` in scrittura, scadenza breve). Le workflow lo usano come
-`${{ secrets.SPD_PR_TOKEN || github.token }}`: se il segreto manca si ripiega
-sul token della corsa, la PR viene aperta lo stesso, la CI viene riavviata a
-mano e il corpo della PR spiega cosa manca. Nessun passo fallisce per questo.
+    gh api -X POST repos/<owner>/<repo>/actions/runs/<run-id>/approve
 
-Il gate `wf-pr-token-default` segnala ogni `create-pull-request` senza `token:`
-esplicito, e `wf-merge-no-redispatch` segnala ogni merge senza riavvio: cosi' la
-scorciatoia non puo' tornare indietro in silenzio.
+la CI e' passata e automerge ha fuso. Il ciclo nel frattempo non resta cieco:
+dispatcha `ci.yml` sul branch curato, e `workflow_dispatch` quel cancello non lo
+passa, quindi le correzioni vengono verificate comunque — ad aspettare e' solo
+il merge.
+
+Per togliere anche quel clic serve il segreto **`SPD_PR_TOKEN`** (PAT
+fine-grained: solo questa repo, `Contents` e `Pull requests` in scrittura,
+scadenza breve). Le workflow lo usano come
+`${{ secrets.SPD_PR_TOKEN || github.token }}`: con il PAT la PR nasce da
+un'identita' utente, i check partono da soli e il ciclo chiude senza mani.
+Senza, si ripiega sul token della corsa: la PR viene aperta, la CI riavviata a
+mano, il corpo della PR spiega cosa manca. Nessun passo fallisce per questo.
+
+I gate `wf-pr-token-default` (create-pull-request senza `token:` esplicito) e
+`wf-merge-no-redispatch` (merge senza riavvio) impediscono che le scorciatoie
+tornino indietro in silenzio.
 
 ### Provarlo in locale
 
@@ -202,5 +204,6 @@ vulnerability*) invece di una issue pubblica. Risposta attesa entro 7 giorni.
   installato — i suoi esiti, che pero' restano non bloccanti perche' la
   versione cambia da un ambiente all'altro. Un giro in CI resta quindi
   l'ultima parola sulle workflow.
-- Senza il segreto `SPD_PR_TOKEN` il ciclo **non si chiude da solo**: apre la
-  PR e riavvia la CI a mano, ma il merge resta a una persona (vedi sopra).
+- Senza il segreto `SPD_PR_TOKEN` il ciclo **non si chiude da solo**: apre la PR
+  e la fa verificare, ma i check innescati dalla PR restano in `action_required`
+  e il merge aspetta un'approvazione umana (vedi sopra).
