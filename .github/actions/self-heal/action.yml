@@ -59,6 +59,9 @@ outputs:
   manual:
     description: 'Regole che richiedono una persona (separate da virgola)'
     value: ${{ steps.heal.outputs.manual }}
+  rules:
+    description: 'Regole di correzione applicate (separate da virgola)'
+    value: ${{ steps.heal.outputs.rules }}
 
 runs:
   using: composite

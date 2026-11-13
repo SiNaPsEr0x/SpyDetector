@@ -172,6 +172,16 @@ def run_loop(max_rounds=3, with_build=False, improve=False, dry_run=False,
     return result
 
 
+def applied_rules(result):
+    """Regole di correzione applicate, in ordine alfabetico e senza duplicati.
+
+    Servono al riepilogo, al corpo della PR e — passando dal messaggio del
+    commit di correzione — alle note della release: chi scarica l'APK deve poter
+    leggere cosa ha sistemato il ciclo, non solo che "e' stato riparato".
+    """
+    return sorted({r for rnd in result["rounds"] for r in rnd.get("rules", [])})
+
+
 def markdown(result, title="Self-healing"):
     """Riepilogo leggibile (job summary della CI e corpo della PR)."""
     status = result["status"]
@@ -190,7 +200,7 @@ def markdown(result, title="Self-healing"):
         lines += ["", "**File modificati** (%d):" % len(result["changed_files"]), ""]
         for f in result["changed_files"]:
             lines.append("- `%s`" % f)
-    rules = sorted({r for rnd in result["rounds"] for r in rnd.get("rules", [])})
+    rules = applied_rules(result)
     if rules:
         lines += ["", "Regole applicate: " + ", ".join("`%s`" % r for r in rules)]
     if result["remaining"]:
@@ -236,6 +246,7 @@ def write_outputs(result, json_path=None, md_path=None, step_summary=False):
             fh.write("warnings=%d\n" % final.get("warnings", 0))
             fh.write("changed-files=%d\n" % len(result["changed_files"]))
             fh.write("manual=%s\n" % ",".join(result["manual"]))
+            fh.write("rules=%s\n" % ",".join(applied_rules(result)))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY") if step_summary else None
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as fh:

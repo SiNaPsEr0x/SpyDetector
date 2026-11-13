@@ -286,6 +286,12 @@ jobs:
             Ciclo gate -> correzione -> verifica di scripts/selfheal.py.
             Solo trasformazioni deterministiche e idempotenti; la CI
             ricontrolla tutto prima dell'eventuale merge.
+
+            Regole applicate: ${{ steps.heal.outputs.rules }}
+            File modificati: ${{ steps.heal.outputs.changed-files }}
+
+            Questo elenco finisce nelle note della release: release.yml legge i
+            commit [self-heal] nel range dalla release precedente.
           labels: |
             self-heal
             automation
