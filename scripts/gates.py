@@ -976,6 +976,8 @@ def gate_actions(ctx):
 
         _check_injection(out, ctx, wf, path)
         _check_downloads(out, ctx, wf, path)
+        _check_merge_redispatch(out, ctx, wf, path)
+        _check_pr_token(out, ctx, wf, path)
     return out
 
 
@@ -1025,6 +1027,77 @@ def _check_downloads(out, ctx, wf, path):
                            run.line,
                            "scarica ed esegui/estrai un binario senza verificarne "
                            "l'SHA256: usa una action pinnata o aggiungi il checksum"))
+
+
+MERGE_CALL_RE = re.compile(r"(gh\s+pr\s+merge\b|/pulls/[^\s\"']*?/merge\b|merge_method\s*=)")
+REDISPATCH_RE = re.compile(r"(gh\s+workflow\s+run\b|/actions/workflows/[^\s\"']*?/dispatches"
+                           r"|repository_dispatch)")
+
+
+def _check_merge_redispatch(out, ctx, wf, path):
+    """Merge col GITHUB_TOKEN senza riavvio esplicito delle workflow su main.
+
+    GitHub non innesca nuove corse per gli eventi generati dal GITHUB_TOKEN
+    (eccezioni: workflow_dispatch e repository_dispatch). Chi fonde una PR con
+    il token di default quindi lascia ferme tutte le pipeline in ascolto sui
+    push verso il branch predefinito: Release non pubblica l'APK corretto e le
+    scansioni periodiche restano l'unico controllo sul codice appena unito.
+    """
+    merge_step = None
+    code = []
+    for step in wf.steps:
+        run = step["keys"].get("run")
+        if run is None or not run.block:
+            continue
+        # solo il codice dei blocchi run: i commenti citano spesso i nomi degli
+        # eventi e falserebbero la verifica
+        text = "\n".join(t for _, t in run.block)
+        code.append(text)
+        if merge_step is None and MERGE_CALL_RE.search(text):
+            merge_step = run
+    if merge_step is None:
+        return
+    if REDISPATCH_RE.search("\n".join(code)):
+        return
+    out.append(Finding("actions", "wf-merge-no-redispatch", WARN, path, merge_step.line,
+                       "il merge usa il GITHUB_TOKEN: i push che genera non innescano "
+                       "altre workflow, quindi Release e le scansioni su push verso il "
+                       "branch predefinito restano ferme — riavvia quelle necessarie "
+                       "con `gh workflow run <file> --ref <branch>`"))
+
+
+CREATE_PR_RE = re.compile(r"uses:\s*peter-evans/create-pull-request\b")
+WITH_TOKEN_RE = re.compile(r"^\s+token:\s*\S", re.M)
+
+
+def _check_pr_token(out, ctx, wf, path):
+    """PR aperta col GITHUB_TOKEN di default: non innesca nessun workflow.
+
+    Vale la stessa regola anti-ricorsione del merge: una pull_request creata con
+    il token della corsa non genera eventi, quindi sulla PR non partono ne' la CI
+    ne' l'automerge. Il resto del ciclo resta bloccato su una PR che nessuno
+    controlla e nessuno fonde.
+    """
+    lines = wf.text.split("\n")
+    for i, line in enumerate(lines):
+        if not CREATE_PR_RE.search(line):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        end = len(lines)
+        for j in range(i + 1, len(lines)):
+            nxt = lines[j]
+            if not nxt.strip():
+                continue
+            ind = len(nxt) - len(nxt.lstrip(" "))
+            if ind < indent or (ind <= indent and nxt.lstrip().startswith("- ")):
+                end = j
+                break
+        if not WITH_TOKEN_RE.search("\n".join(lines[i:end])):
+            out.append(Finding("actions", "wf-pr-token-default", WARN, path, i + 1,
+                               "PR creata col GITHUB_TOKEN: le PR aperte cosi' non "
+                               "innescano workflow, quindi la CI e l'automerge non "
+                               "partono — usa un PAT (`token: ${{ secrets.X || "
+                               "github.token }}`) o riavvia i check a mano"))
 
 
 # --------------------------------------------------------------------------

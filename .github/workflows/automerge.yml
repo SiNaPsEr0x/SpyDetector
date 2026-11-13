@@ -1,9 +1,15 @@
 name: Automerge aggiornamenti
 
 # Tutte le PR vengono unite automaticamente SOLO se TUTTI i check obbligatori
-# sono verdi: build APK, verifica, actionlint, SAST, CodeQL, secret scanning,
-# dependency review, vulnerability scan, malware scan.
+# sono verdi: build APK, verifica, actionlint, gate di qualita', SAST, CodeQL,
+# secret scanning, dependency review, vulnerability scan, malware scan.
 # Per Dependabot gli aggiornamenti major restano manuali.
+#
+# Dopo il merge: un merge eseguito con il GITHUB_TOKEN non genera eventi push,
+# quindi le workflow che partono su push verso main non si innescherebbero
+# (regola anti-ricorsione di GitHub; le eccezioni sono workflow_dispatch e
+# repository_dispatch). L'ultimo passo riavvia esplicitamente quelle che la PR
+# non ha gia' visto: Release (ricostruisce e pubblica l'APK) e Malware/IOC.
 
 on:
   pull_request:
@@ -12,6 +18,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # serve solo a riavviare esplicitamente le workflow su main dopo il merge
+  actions: write
 
 concurrency:
   group: automerge-${{ github.ref }}
@@ -33,6 +41,7 @@ jobs:
           running-workflow-name: 'Automerge aggiornamenti'
 
       - name: Merge
+        id: merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
@@ -58,3 +67,28 @@ jobs:
             exit 1
           }
           echo "PR $PR unita con successo (squash)"
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+
+      - name: Riavvia le workflow su main dopo il merge
+        # CodeQL, SAST, secret scanning, dependency review e vulnerability scan
+        # hanno gia' controllato la PR e sono condizione del merge: qui ripartono
+        # solo le due che una PR non vede mai, perche' ascoltano esclusivamente
+        # i push verso main. Il dispatch non crea loop: Release committa il bump
+        # di VERSION con [skip ci] e Malware/IOC non committa nulla.
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$BASE" != "$DEFAULT_BRANCH" ]; then
+            echo "salto: PR verso $BASE, non verso $DEFAULT_BRANCH"
+            exit 0
+          fi
+          for WF in release.yml malware-scan.yml; do
+            if gh workflow run "$WF" --ref "$DEFAULT_BRANCH"; then
+              echo "riavviata $WF su $DEFAULT_BRANCH"
+            else
+              echo "::warning::$WF non riavviata: da lanciare a mano"
+            fi
+          done
