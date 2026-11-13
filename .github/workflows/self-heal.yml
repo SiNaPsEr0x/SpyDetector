@@ -263,6 +263,39 @@ jobs:
 
           echo "esito: stato=$STATUS PR=$OPEN_PR issue=$NEEDS_HUMAN"
 
+      - name: Salva le correzioni come patch
+        # se il push viene rifiutato le correzioni esistono solo nel workspace,
+        # che muore insieme al job: la patch le conserva. Il conteggio dei file
+        # in .github/workflows/ spiega in anticipo perche' il push puo' essere
+        # rifiutato (il GITHUB_TOKEN non puo' modificare le workflow).
+        id: patch
+        if: steps.outcome.outputs.open-pr == 'true'
+        run: |
+          set -uo pipefail
+          mkdir -p build
+          git --no-pager diff --binary HEAD > build/self-heal.patch
+          # i file nuovi non tracciati non sono in git diff: vanno aggiunti a mano
+          while read -r F; do
+            [ -n "$F" ] || continue
+            git --no-pager diff --binary --no-index /dev/null "$F" \
+              >> build/self-heal.patch || true
+          done < <(git ls-files --others --exclude-standard)
+          WF=$( { git --no-pager diff --name-only HEAD
+                  git ls-files --others --exclude-standard; } \
+                | grep -c '^\.github/workflows/' || true )
+          echo "wf-files=$WF" >> "$GITHUB_OUTPUT"
+          echo "file di workflow modificati: $WF"
+          echo "righe di patch: $(wc -l < build/self-heal.patch)"
+
+      - name: Allega la patch alla corsa
+        if: steps.outcome.outputs.open-pr == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: self-heal-patch
+          path: build/self-heal.patch
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Apri o aggiorna la PR con le correzioni
         id: pr
         if: steps.outcome.outputs.open-pr == 'true'
@@ -307,32 +340,71 @@ jobs:
           HEAL_BRANCH: ${{ steps.cfg.outputs.branch }}
           BASE: ${{ steps.cfg.outputs.base }}
           CHANGED: ${{ steps.heal.outputs.changed-files }}
+          WF_FILES: ${{ steps.patch.outputs.wf-files }}
+          HAS_PAT: ${{ steps.cfg.outputs.has-pat }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
-          echo "::error::PR non creata: a GitHub Actions non e' permesso creare pull request in questa repo"
+          # i muri sono due e vanno nominati per quello che sono
+          BLOCCO_WF=false
+          if [ "${WF_FILES:-0}" -gt 0 ] && [ "$HAS_PAT" = "false" ]; then
+            BLOCCO_WF=true
+            echo "::error::push rifiutato: $WF_FILES dei file corretti stanno in .github/workflows/ e il GITHUB_TOKEN non puo' crearli ne' aggiornarli. Serve il segreto SPD_PR_TOKEN con permesso Workflows"
+          else
+            echo "::error::PR non creata: a GitHub Actions non e' permesso creare pull request in questa repo"
+          fi
+          # le correzioni sono in remoto solo se il push e' arrivato
+          if git ls-remote --heads origin "$HEAL_BRANCH" | grep -q .; then
+            DOVE="nel branch remoto $HEAL_BRANCH"
+            COME="gh pr create --base $BASE --head $HEAL_BRANCH"
+          else
+            DOVE="nell'artefatto self-heal-patch di questa corsa (il push non e' arrivato)"
+            COME="gh run download $RUN_ID -n self-heal-patch && git apply self-heal.patch"
+          fi
           {
-            echo "Il ciclo di self-healing ha riparato il branch $BASE e ha pushato le"
-            echo "correzioni, ma non ha potuto aprire la pull request."
+            echo "Il ciclo di self-healing ha riparato il branch $BASE, ma non ha"
+            echo "potuto consegnare le correzioni."
             echo ""
             echo "| cosa | valore |"
             echo "|---|---|"
-            echo "| branch con le correzioni | $HEAL_BRANCH |"
             echo "| base | $BASE |"
             echo "| file modificati | $CHANGED |"
+            echo "| di cui in .github/workflows/ | ${WF_FILES:-0} |"
+            echo "| SPD_PR_TOKEN presente | $HAS_PAT |"
             echo "| corsa | $RUN_URL |"
             echo ""
-            echo "## Per sbloccare il ciclo (una delle due)"
+            if [ "$BLOCCO_WF" = "true" ]; then
+              echo "## Perche' e' stata rifiutata"
+              echo ""
+              echo "Il server ha respinto il push con:"
+              echo ""
+              echo "    refusing to allow a GitHub App to create or update workflow"
+              echo "    senza il permesso workflows"
+              echo ""
+              echo "Il token della corsa e' un installation token: lo scope"
+              echo "workflows non gli e' concedibile (non compare fra i valori"
+              echo "ammessi in permissions:), quindi **nessuna modifica alle"
+              echo "workflow puo' arrivare in una PR senza un PAT**. La spunta"
+              echo "*Allow GitHub Actions to create and approve pull requests*"
+              echo "non c'entra: qui il blocco e' sul push, non sulla PR."
+              echo ""
+              echo "Serve il segreto **SPD_PR_TOKEN**: PAT fine-grained su questa"
+              echo "repo con Contents, Pull requests, Issues e **Workflows** in"
+              echo "scrittura. Le workflow lo usano gia' come prima scelta."
+            else
+              echo "## Per sbloccare il ciclo (una delle due)"
+              echo ""
+              echo "1. Settings -> Actions -> General -> Workflow permissions: attiva"
+              echo "   **Allow GitHub Actions to create and approve pull requests**."
+              echo "2. Oppure aggiungi il segreto **SPD_PR_TOKEN** (PAT fine-grained su"
+              echo "   questa repo, Contents e Pull requests in scrittura): le workflow"
+              echo "   lo usano gia' come prima scelta, col token di corsa come riserva."
+            fi
             echo ""
-            echo "1. Settings -> Actions -> General -> Workflow permissions: attiva"
-            echo "   **Allow GitHub Actions to create and approve pull requests**."
-            echo "2. Oppure aggiungi il segreto **SPD_PR_TOKEN** (PAT fine-grained su"
-            echo "   questa repo, Contents e Pull requests in scrittura): le workflow"
-            echo "   lo usano gia' come prima scelta, col token di corsa come riserva."
+            echo "Le correzioni sono $DOVE; per consegnarle a mano:"
             echo ""
-            echo "Intanto le correzioni sono nel branch; per aprirle a mano:"
-            echo ""
-            echo "    gh pr create --base $BASE --head $HEAL_BRANCH"
+            echo "    $COME"
           } > build/pr-blocked.md
 
           # una sola issue per branch: il ciclo gira anche ogni notte
