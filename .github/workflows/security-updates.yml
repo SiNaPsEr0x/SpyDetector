@@ -112,7 +112,57 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Cosa si puo' consegnare senza un PAT
+        # Il GITHUB_TOKEN e' un installation token: il server rifiuta i push che
+        # creano o aggiornano file in .github/workflows/ con
+        # "refusing to allow a GitHub App to create or update workflow ...
+        # without `workflows` permission" e git esce 1. Quello scope non e'
+        # concedibile al token di corsa (non esiste in permissions:), quindi
+        # senza SPD_PR_TOKEN gli aggiornamenti dei pin — che stanno tutti nelle
+        # workflow — non possono finire in una PR. Vengono messi da parte in una
+        # patch: il resto della notte viene consegnato lo stesso e i pin restano
+        # recuperabili, invece di far morire il passo e perdere tutto.
+        id: filtro
+        env:
+          SPD_PR_TOKEN: ${{ secrets.SPD_PR_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p build
+          WF=$(git --no-pager diff --name-only -- .github/workflows | wc -l)
+          echo "file di workflow modificati dagli aggiornamenti: $WF"
+          if [ -n "$SPD_PR_TOKEN" ] || [ "$WF" -eq 0 ]; then
+            echo "bloccati=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git --no-pager diff -- .github/workflows > build/pin-bloccati.patch
+          git checkout -- .github/workflows
+          echo "bloccati=$WF" >> "$GITHUB_OUTPUT"
+          echo "::warning::$WF file di workflow aggiornati ma non consegnabili col token di corsa: serve SPD_PR_TOKEN con permesso Workflows. Patch salvata in build/pin-bloccati.patch"
+
+      - name: Testo della PR
+        # prima qui c'era un $(git diff --stat) scritto dentro body:, che non e'
+        # una shell: finiva nella PR come testo letterale. Il corpo viene scritto
+        # davvero, dopo il passo che mette da parte le workflow
+        run: |
+          set -uo pipefail
+          {
+            echo "Aggiornamento automatico **verificato**: l'APK e' stato compilato e"
+            echo "validato con le versioni nuove da scripts/verify-apk.py prima di"
+            echo "aprire questa PR."
+            echo ""
+            echo "Cosa cambia:"
+            echo ""
+            echo '```'
+            git --no-pager diff --stat || true
+            echo '```'
+            echo ""
+            echo "Se la build o la verifica non passano, questa PR **non viene aperta**."
+          } > build/pr-body.md
+          cat build/pr-body.md
+
       - name: Apri/aggiorna la PR con gli aggiornamenti
+        id: pr
+        continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           # senza un PAT la PR non innesca nessun workflow (CI e automerge
@@ -132,17 +182,7 @@ jobs:
           labels: |
             dependencies
             security
-          body: |
-            Aggiornamento automatico **verificato**: l'APK e' stato compilato e validato
-            con le versioni nuove da `scripts/verify-apk.py` prima di aprire questa PR.
-
-            Dettaglio nelle modifiche:
-
-            ```
-            $(git --no-pager diff --stat HEAD~0 2>/dev/null || true)
-            ```
-
-            Se la build o la verifica non passano, questa PR **non viene aperta**.
+          body-path: build/pr-body.md
           add-paths: |
             .github/workflows
             tools/toolchain.env
@@ -150,3 +190,61 @@ jobs:
             data/threat-seed.txt
             data/official-signatures.txt
             docs/security/
+
+      - name: Se qualcosa non si consegna, dirlo e non perderlo
+        # prima questo passo non c'era: la corsa moriva con
+        # "The process '/usr/bin/git' failed with exit code 1" e nessuno sapeva
+        # ne' perche' ne' cosa fosse andato perso
+        if: steps.filtro.outputs.bloccati != '0' || steps.pr.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BLOCCATI: ${{ steps.filtro.outputs.bloccati }}
+          ESITO_PR: ${{ steps.pr.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ "$ESITO_PR" = "failure" ]; then
+            echo "::error::la PR degli aggiornamenti non e' stata creata"
+          else
+            echo "::warning::$BLOCCATI aggiornamenti alle workflow messi da parte"
+          fi
+          {
+            echo "### Aggiornamenti della notte non consegnati"
+            echo ""
+            echo "| cosa | valore |"
+            echo "|---|---|"
+            echo "| file di workflow messi da parte | ${BLOCCATI:-0} |"
+            echo "| esito del passo PR | ${ESITO_PR:-n/d} |"
+            echo "| corsa | $RUN_URL |"
+            echo ""
+            echo "Il token della corsa non puo' creare o aggiornare file in"
+            echo ".github/workflows/: il server risponde _refusing to allow a GitHub"
+            echo "App to create or update workflow ... without workflows permission_."
+            echo "Lo scope workflows non e' concedibile al GITHUB_TOKEN, quindi per"
+            echo "consegnare gli aggiornamenti delle action serve il segreto"
+            echo "**SPD_PR_TOKEN**: PAT fine-grained su questa repo con Contents,"
+            echo "Pull requests, Issues e **Workflows** in scrittura."
+            echo ""
+            echo "Intanto le modifiche messe da parte sono qui sotto (oppure"
+            echo "nell'artefatto della corsa): si possono applicare con"
+            echo "git apply."
+            echo ""
+            echo '```diff'
+            head -120 build/pin-bloccati.patch 2>/dev/null || echo "patch non disponibile"
+            echo '```'
+          } > build/aggiornamenti-bloccati.md
+
+          TITOLO="[security] aggiornamenti delle action non consegnabili senza SPD_PR_TOKEN"
+          if gh issue list --state open --json title | grep -F "$TITOLO" >/dev/null 2>&1; then
+            echo "issue gia' aperta: nessun duplicato"
+          elif gh issue create --label security --title "$TITOLO" \
+               --body-file build/aggiornamenti-bloccati.md; then
+            echo "issue aperta: gli aggiornamenti restano recuperabili"
+          elif gh issue create --title "$TITOLO" \
+               --body-file build/aggiornamenti-bloccati.md; then
+            echo "issue aperta senza etichetta (security non esiste)"
+          else
+            echo "::error::nemmeno l'issue si puo' aprire: aggiornamenti persi con il workspace"
+            exit 1
+          fi

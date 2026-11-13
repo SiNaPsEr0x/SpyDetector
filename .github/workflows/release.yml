@@ -247,6 +247,32 @@ jobs:
             gh release create "$TAG" dist/* --title "SpyDetector $TAG" --notes "$NOTES" --latest
           fi
 
+      - name: L'attestazione pubblicata si verifica
+        # le note della release invitano a verificare l'APK con
+        # `gh attestation verify`: qui lo si fa davvero, sull'APK appena
+        # pubblicato, cosi' la promessa nelle note e' controllata a ogni release
+        # invece di essere solo scritta. Non blocca nulla: l'attestazione e'
+        # gia' stata creata e l'APK e' gia' online, quindi un intoppo resta
+        # un'annotazione e non una release fallita.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          APK: dist/SpyDetector-v${{ steps.ver.outputs.version }}-release.apk
+        run: |
+          set -uo pipefail
+          # la pubblicazione non e' istantanea: qualche tentativo
+          for i in 1 2 3 4 5 6; do
+            if ERR=$(gh attestation verify "$APK" --repo "$GH_REPO" 2>&1); then
+              echo "attestazione verificata al tentativo $i"
+              exit 0
+            fi
+            echo "tentativo $i non riuscito, riprovo tra 20s"
+            sleep 20
+          done
+          # le annotazioni si troncano al primo a-capo: output appiattito
+          echo "::warning::attestazione non verificata dopo 6 tentativi: ${ERR//$'\n'/ | }"
+          exit 0
+
       - name: Auto-bump versione (+0.0.1 a ogni APK creato)
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !github.event.inputs.version
         run: |
