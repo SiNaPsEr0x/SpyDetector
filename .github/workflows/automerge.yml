@@ -44,6 +44,9 @@ jobs:
         id: merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # questo job non fa checkout: gh ricava la repo dal remoto git, che
+          # qui non esiste (la variabile GITHUB_REPOSITORY non gli basta)
+          GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           # il titolo non va mai interpolato in uno script: passa da env
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -78,17 +81,28 @@ jobs:
         if: steps.merge.outputs.merged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # senza checkout gh non determina la repo da solo: il dispatch fallisce
+          # con "failed to determine base repo" e nessuno lo vede
+          GH_REPO: ${{ github.repository }}
           BASE: ${{ github.event.pull_request.base.ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          set -euo pipefail
           if [ "$BASE" != "$DEFAULT_BRANCH" ]; then
             echo "salto: PR verso $BASE, non verso $DEFAULT_BRANCH"
             exit 0
           fi
           for WF in release.yml malware-scan.yml; do
-            if gh workflow run "$WF" --ref "$DEFAULT_BRANCH"; then
+            if ERR=$(gh workflow run "$WF" --ref "$DEFAULT_BRANCH" 2>&1); then
               echo "riavviata $WF su $DEFAULT_BRANCH"
             else
-              echo "::warning::$WF non riavviata: da lanciare a mano"
+              # i log del runner non sono sempre raggiungibili: l'errore vero va
+              # nelle annotazioni e nel riepilogo, non in un avviso generico
+              echo "::warning::$WF non riavviata: $ERR"
+              {
+                echo "### Merge fatto, riavvio fallito"
+                echo ""
+                echo "\`$WF\` su \`$DEFAULT_BRANCH\`: \`$ERR\`"
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           done

@@ -24,7 +24,7 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **Correzioni deterministiche** | ogni regola riparabile ha una trasformazione idempotente e verificabile: niente patch inventate | `scripts/autofix.py` |
 | **Self-healing** | ciclo gate → correzione → gate (fino a N round), PR solo se chiude verde, regressione annullata con git | `self-heal.yml`, `scripts/selfheal.py` |
 | **Innesco automatico** | se una pipeline fallisce, il ciclo riparte sul branch che ha fallito e avvisa nella PR | `auto-fix-on-failure.yml` |
-| **Self-test del ciclo** | 89 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
+| **Self-test del ciclo** | 92 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
 | **Automerge sicuro** | le PR vengono unite solo se **tutti** i check sono verdi (le major di Dependabot restano manuali); dopo il merge riavvia Release e Malware/IOC, perche' un merge fatto col `GITHUB_TOKEN` non genera eventi push | `automerge.yml` |
 | **Postura repo** | OpenSSF Scorecard settimanale | `repo-scorecard.yml` |
 | **Aggiornamenti** | job giornaliero che aggiorna toolchain/action/threat DB, **ricompila e verifica**, e apre PR solo se tutto passa | `security-updates.yml` |
@@ -100,6 +100,7 @@ una issue con il report, invece di inventare una patch:
 | `wf-pr-token-default` | fornire un PAT al ciclo e' una scelta di chi configura la repo: il token non si puo' inventare |
 | `sh-syntax`, `py-syntax`, `yaml-invalid` | sintassi rotta: la causa non e' deducibile in modo sicuro |
 | `sh-backtick` | un backtick fuori dagli apici singoli e' un comando: se era testo va escapato, se era sostituzione legacy va riscritto `$(...)` |
+| `wf-gh-no-repo` | dove debba guardare `gh` (repo, branch, permessi) dipende dall'intento del passo |
 | `data-seed-*`, `docs-link-broken` | contenuti curati a mano |
 
 ### Le sicurezze del ciclo
