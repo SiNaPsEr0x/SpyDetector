@@ -24,7 +24,7 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **Correzioni deterministiche** | ogni regola riparabile ha una trasformazione idempotente e verificabile: niente patch inventate | `scripts/autofix.py` |
 | **Self-healing** | ciclo gate → correzione → gate (fino a N round), PR solo se chiude verde, regressione annullata con git | `self-heal.yml`, `scripts/selfheal.py` |
 | **Innesco automatico** | se una pipeline fallisce, il ciclo riparte sul branch che ha fallito e avvisa nella PR | `auto-fix-on-failure.yml` |
-| **Self-test del ciclo** | 92 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
+| **Self-test del ciclo** | 91 controlli su una copia del repo con difetti iniettati, **anche quando il repo non e' pulito** (le assert confrontano i delta con la baseline: un soccorritore che pretende un repo sano non soccorre nessuno): difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
 | **Automerge sicuro** | le PR vengono unite solo se **tutti** i check sono verdi (le major di Dependabot restano manuali); dopo il merge riavvia Release e Malware/IOC, perche' un merge fatto col `GITHUB_TOKEN` non genera eventi push | `automerge.yml` |
 | **Postura repo** | OpenSSF Scorecard settimanale | `repo-scorecard.yml` |
 | **Aggiornamenti** | job giornaliero che aggiorna toolchain/action/threat DB, **ricompila e verifica**, e apre PR solo se tutto passa | `security-updates.yml` |
@@ -126,7 +126,18 @@ corsa (regola anti-ricorsione; le eccezioni sono `workflow_dispatch` e
 | `self-heal.yml` apre la PR | sulla PR non parte **nessun** check e `automerge.yml` non la vede | la CI viene riavviata a mano con `gh workflow run ci.yml --ref fix/self-heal/<slug>`; il merge resta a una persona |
 | `automerge.yml` fonde la PR | i push verso main non partono: niente Release, niente scansioni | `automerge.yml` riavvia esplicitamente `release.yml` e `malware-scan.yml` |
 
-Per chiudere **anche** il primo punto senza intervento umano serve un PAT nel
+C'e' un terzo ostacolo, che non dipende dal token ma da un'impostazione della
+repo: **Settings → Actions → General → Workflow permissions → “Allow GitHub
+Actions to create and approve pull requests”**. Se resta disattivata, creare la
+PR viene rifiutato (`GitHub Actions is not permitted to create or approve pull
+requests`) anche con `pull-requests: write`. Il ciclo non perde comunque nulla:
+`create-pull-request` pusha il branch prima di creare la PR, quindi
+`self-heal.yml` prosegue con `continue-on-error`, apre una issue etichettata
+`self-heal` (una sola per branch) con il nome del branch curato e le istruzioni,
+e scrive un `::error::` nelle annotazioni.
+
+Per chiudere **anche** il primo punto senza intervento umano serve quindi una
+delle due cose: quella spunta, oppure un PAT nel
 segreto `SPD_PR_TOKEN` (fine-grained: solo questa repo, `Contents` e
 `Pull requests` in scrittura, scadenza breve). Le workflow lo usano come
 `${{ secrets.SPD_PR_TOKEN || github.token }}`: se il segreto manca si ripiega
