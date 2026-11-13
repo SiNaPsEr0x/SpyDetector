@@ -106,3 +106,30 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
+
+      - name: Elimina il branch di correzione del ciclo
+        # create-pull-request cancella il branch solo quando e' lui a fondere;
+        # qui il merge passa dall'API, quindi il branch curato resterebbe per
+        # sempre. Vale solo per i branch del ciclo: quelli delle persone e
+        # chore/security-updates (che lo riusa ogni notte) non si toccano.
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -uo pipefail
+          case "$HEAD_BRANCH" in
+            fix/self-heal/*) ;;
+            *) echo "branch non del ciclo ($HEAD_BRANCH): lo lascio dov'e'"; exit 0 ;;
+          esac
+          if [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$GH_REPO" ]; then
+            echo "PR da un fork ($HEAD_REPO): i branch altrui non si toccano"
+            exit 0
+          fi
+          if ERR=$(gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$HEAD_BRANCH" 2>&1); then
+            echo "eliminato il branch di correzione $HEAD_BRANCH"
+          else
+            echo "::warning::branch $HEAD_BRANCH non eliminato: $ERR"
+          fi

@@ -127,6 +127,82 @@ jobs:
           name: SpyDetector-release
           path: dist/*
 
+      - name: Cosa contiene questa release
+        # le note elencano le correzioni davvero applicate: i commit del ciclo si
+        # riconoscono dal marker [self-heal] NEL SOGGETTO (lo squash di GitHub
+        # mette l'elenco dei commit nel corpo, quindi cercare nel messaggio intero
+        # scambierebbe una PR di docs per una correzione automatica) e portano in
+        # corpo le regole usate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -uo pipefail
+          # i tag non sono garantiti nel checkout: senza, il range degrada
+          git fetch -q --tags origin || true
+          # online resta una sola release, ma il suo tag esiste ancora e delimita
+          # cio' che questa release pubblica (escluso il tag corrente, che nelle
+          # riesecuzioni e' gia' quello pubblicato)
+          PREV_TAG="$(gh release list --limit 5 --json tagName --jq '.[].tagName' \
+                      | grep -v -x "$TAG" | head -1 || true)"
+          PARZIALE=""
+          RANGE=(-n 15)
+          if [ -n "$PREV_TAG" ] && git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null 2>&1; then
+            RANGE=("$PREV_TAG..HEAD")
+            echo "note calcolate nel range $PREV_TAG..HEAD"
+          else
+            PARZIALE="si"
+            echo "nessun tag di riferimento: note sugli ultimi 15 commit"
+          fi
+
+          TUTTI="$(git log "${RANGE[@]}" --no-merges --pretty='%h%x09%s' || true)"
+          HEAL="$(printf '%s\n' "$TUTTI" | grep '\[self-heal\]' | head -40 \
+                  | awk -F'\t' '{print "- " $2 " (" $1 ")"}' || true)"
+          OTHER="$(printf '%s\n' "$TUTTI" | grep -v '\[self-heal\]' | grep -v '\[skip ci\]' \
+                   | head -40 | awk -F'\t' '{print "- " $2 " (" $1 ")"}' || true)"
+          # le regole vivono nel corpo dei commit del ciclo; una corrispondenza
+          # larga qui e' innocua perche' si estrae solo la riga "Regole applicate:"
+          RULES="$(git log "${RANGE[@]}" --no-merges --grep='\[self-heal\]' --pretty='%b' \
+                   | sed -n 's/^Regole applicate: //p' | tr ',' '\n' \
+                   | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+                   | grep -v '^$' | sort -u || true)"
+          echo "correzioni del ciclo: $(printf '%s' "$HEAL" | grep -c '^- ' || true)"
+          echo "altre modifiche: $(printf '%s' "$OTHER" | grep -c '^- ' || true)"
+          echo "regole applicate: $(printf '%s' "$RULES" | grep -c '.' || true)"
+
+          {
+            if [ -n "$HEAL" ]; then
+              echo "### Correzioni automatiche del ciclo di self-healing"
+              echo ""
+              echo "$HEAL"
+              echo ""
+              if [ -n "$RULES" ]; then
+                echo "Regole applicate:"
+                echo ""
+                printf '%s\n' "$RULES" | while read -r R; do
+                  [ -n "$R" ] && echo "- \`$R\`"
+                done
+                echo ""
+              fi
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### Altre modifiche"
+              echo ""
+              echo "$OTHER"
+              echo ""
+            fi
+            if [ -z "$HEAL" ] && [ -z "$OTHER" ]; then
+              echo "Nessuna modifica al codice dalla release precedente: APK"
+              echo "ricostruito con la toolchain pinnata corrente."
+              echo ""
+            fi
+            if [ -n "$PARZIALE" ]; then
+              echo "_Elenco parziale: la release precedente non aveva un tag_ _risolvibile._"
+              echo ""
+            fi
+          } > build/release-notes.md
+
       - name: Pulizia release precedenti (una sola versione online)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -147,6 +223,8 @@ jobs:
           **SpyDetector $TAG** — APK di release firmato (Android 8.0+).
 
           Installazione: scarica l'APK, aprilo sul telefono, consenti "Installa da questa origine".
+
+          $(cat build/release-notes.md 2>/dev/null || true)
 
           Verifica del download:
           \`\`\`

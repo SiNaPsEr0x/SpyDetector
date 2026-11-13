@@ -14,6 +14,7 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **Firma** | `apksigner verify` con schema v2+v3 | `build.sh` |
 | **Provenienza** | attestazione di build + `attest-sbom` (verificabile con `gh attestation verify`) | `release.yml` |
 | **SBOM** | SPDX dell'APK allegato alla release | `release.yml` |
+| **Tracciabilita'** | la descrizione della release elenca i fix applicati: commit `[self-heal]` con le regole usate, piu' le altre modifiche dalla release precedente | `release.yml` |
 | **Malware** | ClamAV sull'APK, ogni push e ogni notte | `malware-scan.yml` |
 | **Segreti** | gitleaks su tutto lo storico | `secrets.yml` |
 | **SAST** | CodeQL (Actions) + Semgrep (Java/Android, Python, Bash) | `codeql.yml`, `sast.yml` |
