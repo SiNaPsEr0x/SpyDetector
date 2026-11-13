@@ -582,12 +582,14 @@ def gate_shell(ctx):
                 out.append(Finding("shell", "sh-syntax", ERROR, path, line,
                                    "sintassi bash non valida: %s" % _one_line(r.stderr)))
         if shellcheck:
+            # shellcheck e' opzionale e la sua versione cambia da un ambiente
+            # all'altro: i suoi esiti non sono mai bloccanti (la sintassi, che
+            # invece lo e', la verifica `bash -n` con la regola sh-syntax)
             r = ctx.run([shellcheck, "--format=gcc", path])
             for ln, sev, msg in _parse_gcc(r.stdout):
-                level = {"error": ERROR, "warning": WARN, "note": INFO,
-                         "style": INFO}.get(sev, WARN)
+                level = INFO if sev in ("note", "style") else WARN
                 out.append(Finding("shell", "sh-shellcheck", level, path, ln,
-                                   "shellcheck: %s" % msg))
+                                   "shellcheck (%s): %s" % (sev, msg)))
         else:
             ctx.note("shellcheck",
                      "shellcheck non installato: controllo approfondito saltato")

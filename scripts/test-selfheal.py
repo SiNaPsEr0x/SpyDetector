@@ -43,8 +43,14 @@ _results = []
 
 def check(name, condition, detail=""):
     _results.append((name, bool(condition)))
-    print("  %s %s%s" % (PASS if condition else FAIL, name,
-                         (" — " + detail) if detail and not condition else ""))
+    if condition:
+        print("  %s %s" % (PASS, name))
+    else:
+        print("  %s %s — %s" % (FAIL, name, detail))
+        # in CI diventa un'annotazione: visibile senza aprire i log
+        # (niente newline: romperebbero il formato delle annotazioni)
+        flat = " ".join("%s %s" % (name, detail) .split())
+        print("::error file=scripts/test-selfheal.py::self-test fallito: %s" % flat)
     return bool(condition)
 
 
@@ -237,27 +243,28 @@ def inj_package_mismatch(d):
     sub(d, rel, "package it.spydetector.app.core;", "package it.spydetector.app.wrong;")
 
 
+# (nome, regola di correzione, regola del gate da verificare, iniezione)
 FIXABLE = [
-    ("spazi a fine riga", "ws-trailing", inj_trailing_ws),
-    ("newline finale mancante", "ws-final-newline", inj_no_final_newline),
-    ("fine riga CRLF", "ws-crlf", inj_crlf),
-    ("BOM UTF-8", "ws-bom", inj_bom),
-    ("tab in YAML", "yaml-tabs", inj_yaml_tabs),
-    ("tab in Java", "expand-tabs", inj_java_tabs),
-    ("permissions mancanti", "wf-permissions", inj_no_permissions),
-    ("concurrency mancante", "wf-concurrency", inj_no_concurrency),
-    ("import Java inutilizzato", "java-unused-import", inj_unused_java_import),
-    ("import Python inutilizzato", "py-unused-import", inj_unused_py_import),
-    ("shebang mancante", "sh-shebang", inj_no_shebang),
-    ("strict mode mancante", "sh-strict", inj_no_strict),
-    ("permesso di esecuzione", "file-exec-bit", inj_exec_bit),
-    ("voce duplicata nei data", "data-dedupe", inj_seed_dup),
-    ("codice generato non allineato", "data-threatdb", inj_threatdb_drift),
-    ("android:exported mancante", "manifest-exported", inj_exported),
-    ("file residuo", "file-leftover", inj_leftover),
-    (".gitignore incompleto", "gitignore-add", inj_gitignore),
-    ("workflow non documentata", "docs-workflow-row", inj_undocumented_workflow),
-    ("package Java sbagliato", "java-package", inj_package_mismatch),
+    ("spazi a fine riga", "ws-trailing", "ws-trailing", inj_trailing_ws),
+    ("newline finale mancante", "ws-final-newline", "ws-final-newline", inj_no_final_newline),
+    ("fine riga CRLF", "ws-crlf", "ws-crlf", inj_crlf),
+    ("BOM UTF-8", "ws-bom", "ws-bom", inj_bom),
+    ("tab in YAML", "yaml-tabs", "wf-tab-indent", inj_yaml_tabs),
+    ("tab in Java", "expand-tabs", "java-tabs", inj_java_tabs),
+    ("permissions mancanti", "wf-permissions", "wf-permissions-missing", inj_no_permissions),
+    ("concurrency mancante", "wf-concurrency", "wf-concurrency-missing", inj_no_concurrency),
+    ("import Java inutilizzato", "java-unused-import", "java-unused-import", inj_unused_java_import),
+    ("import Python inutilizzato", "py-unused-import", "py-unused-import", inj_unused_py_import),
+    ("shebang mancante", "sh-shebang", "sh-shebang", inj_no_shebang),
+    ("strict mode mancante", "sh-strict", "sh-strict", inj_no_strict),
+    ("permesso di esecuzione", "file-exec-bit", "file-exec-bit", inj_exec_bit),
+    ("voce duplicata nei data", "data-dedupe", "data-seed-dup", inj_seed_dup),
+    ("codice generato non allineato", "data-threatdb", "data-threatdb-sync", inj_threatdb_drift),
+    ("android:exported mancante", "manifest-exported", "manifest-exported-missing", inj_exported),
+    ("file residuo", "file-leftover", "file-leftover", inj_leftover),
+    (".gitignore incompleto", "gitignore-add", "gitignore-outputs", inj_gitignore),
+    ("workflow non documentata", "docs-workflow-row", "docs-workflow-undocumented", inj_undocumented_workflow),
+    ("package Java sbagliato", "java-package", "java-package-path", inj_package_mismatch),
 ]
 
 # --------------------------------------------------------------------------
@@ -336,48 +343,66 @@ MANUAL = [
 # --------------------------------------------------------------------------
 def phase_fixable(dest, sha):
     print("\n=== fase A: difetti riparabili (%d) ===" % len(FIXABLE))
+    # la copia pulita non deve avere errori: eventuali avvisi dipendono
+    # dall'ambiente (es. shellcheck installato o no) e non contano qui
+    reset_copy(dest, sha)
+    baseline = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
+    base_errors = [f for f in baseline if f.severity == gates.ERROR]
+    check("A/baseline senza errori", not base_errors,
+          "%s" % [str(f) for f in base_errors[:3]])
+    print("  --   baseline: %d errori, %d avvisi (dipendono dall'ambiente)"
+          % (len(base_errors), sum(1 for f in baseline if f.severity == gates.WARN)))
+
     applied_rules = set()
-    for name, rule, inject in FIXABLE:
+    for name, fix_id, gate_rule, inject in FIXABLE:
         reset_copy(dest, sha)
         inject(dest)
         stage(dest)
         ctx = gates.Ctx(root=dest)
         before = gates.run_gates(ctx, skip=("build",), quiet=True)
-        if not any(f.severity == gates.ERROR or f.severity == gates.WARN
-                   for f in before):
-            check("A/%s: il difetto viene rilevato" % name, False,
-                  "nessuna finding prodotta dall'iniezione")
+        detected = [f for f in before if f.rule == gate_rule]
+        if not check("A/%s: rilevato (%s)" % (name, gate_rule), detected,
+                     "nessuna finding %s; viste: %s"
+                     % (gate_rule, sorted({f.rule for f in before})[:8])):
             continue
         # il pin delle action serve rete: lo escludiamo dal test
         patcher, rules = autofix.apply_fixes(ctx, before, severity=gates.WARN,
                                              skip={"wf-pin"}, verbose=False)
         applied_rules.update(rules)
         after = gates.run_gates(gates.Ctx(root=dest), skip=("build",), quiet=True)
-        left = [f for f in after if f.severity in (gates.ERROR, gates.WARN)]
-        ok = check("A/%s: riparato (%s)" % (name, rule),
-                   patcher.changes and not left,
-                   "cambiamenti=%d, residui=%s" % (len(patcher.changes),
-                                                   [f.rule for f in left][:4]))
+        left = [f for f in after if f.rule == gate_rule]
+        ok = check("A/%s: riparato da %s" % (name, fix_id),
+                   bool(patcher.changes) and not left and fix_id in rules,
+                   "cambiamenti=%d, residui=%s, regole=%s"
+                   % (len(patcher.changes), [str(f) for f in left][:2], rules[:6]))
         if not ok:
-            for f in left[:6]:
+            for f in left[:4]:
                 print("        residuo: %s" % f)
     check("A/tutte le regole riparabili sono state usate",
-          applied_rules >= {r for _n, r, _f in FIXABLE},
-          "mancano: %s" % sorted({r for _n, r, _f in FIXABLE} - applied_rules))
+          applied_rules >= {r for _n, r, _g, _f in FIXABLE},
+          "mancano: %s" % sorted({r for _n, r, _g, _f in FIXABLE} - applied_rules))
 
     # idempotenza: tutto insieme, due giri di seguito
     print("\n=== fase A2: tutti i difetti insieme + idempotenza ===")
     reset_copy(dest, sha)
-    for _name, _rule, inject in FIXABLE:
+    for _name, _fix, _rule, inject in FIXABLE:
         if inject is not inj_exec_bit:       # tocca l'index: va fatto per ultimo
             inject(dest)
     inj_exec_bit(dest)
     stage(dest)
     result = selfheal.run_loop(max_rounds=4, root=dest, skip_gates=("build",),
                                autofix_skip={"wf-pin"}, verbose=False)
+    left_rules = {f["rule"] for f in result["remaining"]}
+    expected = {r for _n, _f, r, _i in FIXABLE}
+    final_errors = result["final"].get("errors", 0)
+    check("A2/nessuna delle regole iniettate resta aperta",
+          not (left_rules & expected),
+          "restano: %s" % sorted(left_rules & expected))
+    check("A2/errori non peggiori della baseline", final_errors <= len(base_errors),
+          "finali=%d baseline=%d" % (final_errors, len(base_errors)))
     check("A2/ciclo chiuso verde", result["status"] in (selfheal.HEALED,
                                                         selfheal.CLEAN),
-          "stato=%s, errori=%d" % (result["status"], result["final"].get("errors", 0)))
+          "stato=%s, errori=%d" % (result["status"], final_errors))
     for f in result["remaining"][:5]:
         print("        residuo: %(rule)s %(path)s %(message).80s" % f)
     again = selfheal.run_loop(max_rounds=2, root=dest, skip_gates=("build",),
