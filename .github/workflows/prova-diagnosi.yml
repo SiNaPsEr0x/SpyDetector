@@ -1,0 +1,111 @@
+name: Prova delle diagnosi (temporanea)
+
+# Corsa TEMPORANEA: prova due diagnosi prima di applicare le correzioni.
+#  1) security-updates.yml fa un checkout shallow (fetch-depth di default = 1)
+#     e poi chiede a create-pull-request di pushare un branch nuovo: il server
+#     rifiuta gli aggiornamenti shallow, git esce 1 e la PR non nasce. Qui si
+#     riproduce il push da clone shallow. Se contro ogni attesa riuscisse, il
+#     branch viene cancellato nello stesso passo.
+#  2) gh attestation verify dentro il runner non aveva funzionato, con
+#     l'annotazione vuota. Qui si prova sull'APK gia' pubblicato, con permessi
+#     di sola lettura e con l'output appiattito su una riga perche' le
+#     annotazioni si troncano al primo a-capo.
+# Questo file viene eliminato appena le due risposte sono note.
+
+on:
+  push:
+    branches: ['arena/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prova-diagnosi
+  cancel-in-progress: true
+
+jobs:
+  shallow:
+    name: Push da clone shallow
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # nessuna fetch-depth: e' il default shallow di security-updates.yml
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Profondita' del clone
+        run: |
+          set -euo pipefail
+          echo "commit nel clone: $(git rev-list --count HEAD)"
+          if [ -f "$(git rev-parse --git-dir)/shallow" ]; then
+            echo "il clone E' shallow"
+          else
+            echo "il clone non e' shallow"
+          fi
+
+      - name: Push di un branch nuovo dal clone shallow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          echo "prova" > prova-diagnosi.txt
+          git add prova-diagnosi.txt
+          git commit -q -m "prova: commit per il push di diagnosi"
+          REF="refs/heads/prova-diagnosi-$GITHUB_RUN_ID"
+          if ERR=$(git push origin "HEAD:$REF" 2>&1); then
+            echo "::warning::push shallow RIUSCITO, ipotesi sbagliata: cancello $REF"
+            gh api -X DELETE "repos/$GH_REPO/git/$REF" >/dev/null 2>&1 \
+              || echo "::error::cancellazione di $REF fallita, va fatta a mano"
+          else
+            echo "codice di uscita del push: $?"
+            echo "::notice::push shallow rifiutato: ${ERR//$'\n'/ | }"
+          fi
+
+  attestazioni:
+    name: Verifica dell'attestazione pubblicata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Scarica l'APK pubblicato
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p scarico
+          gh release download --pattern '*.apk' --dir scarico
+          APK="$(find scarico -maxdepth 1 -name '*.apk' | head -1)"
+          echo "apk=$APK" >> "$GITHUB_ENV"
+          echo "sha256=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "APK scaricato: $APK"
+
+      - name: gh attestation verify (come documentato nelle note)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          echo "gh $(gh --version | head -1)"
+          if ERR=$(gh attestation verify "$apk" --repo "$GH_REPO" 2>&1); then
+            echo "::notice::verify riuscito: ${ERR//$'\n'/ | }"
+          else
+            echo "::warning::verify fallito (exit $?): ${ERR//$'\n'/ | }"
+          fi
+
+      - name: L'attestazione e' recuperabile via API per digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          if ERR=$(gh api "repos/$GH_REPO/attestations/sha256:$sha256" \
+                   --jq '.attestations | length' 2>&1); then
+            echo "::notice::attestazioni trovate per digest: $ERR"
+          else
+            echo "::warning::api attestazioni fallita: ${ERR//$'\n'/ | }"
+          fi
