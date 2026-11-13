@@ -9,7 +9,7 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 |---|---|---|
 | **Toolchain** | JDK, `aapt2`, `d8`, `ecj`, `apksigner`, `android.jar` pinnati a versione + **SHA256** (`tools/toolchain.env`), host solo `registry.npmjs.org` / `files.pythonhosted.org` | `tools/fetch-toolchain.sh`, `scripts/check-iocs.py` |
 | **Update del toolchain** | ogni versione candidata viene **scaricata e provata** (aapt2 deve rispondere, i jar devono contenere le classi attese, il JDK deve avere `bin/java`+`keytool`) prima di essere pinnata | `scripts/update-toolchain.py` |
-| **Action GitHub** | tutte pinnate a **commit SHA** con tag in commento; aggiornamento automatico solo se la major è compatibile | `scripts/update-pins.py` |
+| **Action GitHub** | tutte pinnate a **commit SHA** con tag in commento; aggiornamento automatico solo restando nella stessa major, che viene letta dal tag e mai dallo SHA, e senza mai retrocedere (`--selftest`, 17 prove senza rete, gira a ogni CI) | `scripts/update-pins.py` |
 | **APK** | struttura zip, manifest binario, package, activity, firma v2/v3, classi e check nel DEX, permessi **non** concessi (niente INTERNET/SMS/microfono/fotocamera) | `scripts/verify-apk.py` |
 | **Firma** | `apksigner verify` con schema v2+v3 | `build.sh` |
 | **Provenienza** | attestazione di build + `attest-sbom` (verificabile con `gh attestation verify`) | `release.yml` |
@@ -78,7 +78,7 @@ cambia piu' nulla). Elenco completo: `python3 scripts/autofix.py --list`.
 | `file-exec-bit`, `file-leftover`, `gitignore-add` | permessi di esecuzione, residui di merge, `.gitignore` |
 | `java-package` | allinea la dichiarazione `package` al percorso del file |
 | `wf-permissions`, `wf-concurrency` | aggiunge `permissions: contents: read` e il blocco `concurrency` |
-| `wf-pin` | pinna le action al commit SHA (via `scripts/update-pins.py`, serve rete) |
+| `wf-pin` | pinna le action al commit SHA (via `scripts/update-pins.py`, serve rete); aggiorna solo nella stessa major e rifiuta le retrocessioni |
 | `manifest-exported` | aggiunge `android:exported` esplicito ai componenti con intent-filter |
 | `data-dedupe`, `data-threatdb` | voci duplicate nei `data/`, `ThreatDbGenerated.java` rigenerato |
 | `docs-workflow-row` | aggiunge alla tabella qui sopra le workflow non documentate |
