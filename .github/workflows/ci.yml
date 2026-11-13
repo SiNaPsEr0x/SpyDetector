@@ -48,6 +48,11 @@ jobs:
       - name: Self-test del ciclo di self-healing
         run: python3 scripts/test-selfheal.py
 
+      # senza rete: prova la logica che sceglie le versioni dei pin. Da sola
+      # leggeva le prime cifre dello SHA come major e retrocedeva le action
+      - name: Prova della logica dei pin
+        run: python3 scripts/update-pins.py --selftest
+
       # senza build: l'APK lo compila il job qui sotto (niente download doppi)
       - name: Gate sul repository
         uses: ./.github/actions/quality-gates

@@ -122,7 +122,7 @@ Altri script utili:
 |---|---|
 | `scripts/release.sh 1.1.0` | aggiorna `VERSION`, pusha e fa pubblicare la release alla CI |
 | `scripts/update-threat-db.py` | rigenera `ThreatDbGenerated.java` da `data/threat-seed.txt` (`--check` verifica senza scrivere) |
-| `scripts/update-pins.py` | pinna le action GitHub al commit SHA della release compatibile |
+| `scripts/update-pins.py` | pinna le action GitHub al commit SHA della release compatibile (`--dry-run`, `--check`, `--selftest`) |
 | `scripts/update-toolchain.py` | valida e pinna la toolchain di build (npm/PyPI + SHA256) |
 | `scripts/check-iocs.py` | indicatori di compromissione dei pacchetti usati per la build |
 | `scripts/verify-apk.py` | verifica che l'APK costruito sia installabile e contenga il codice atteso |

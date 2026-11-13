@@ -116,7 +116,10 @@ jobs:
           subject-path: 'dist/*.apk'
 
       - name: Attestazione SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        # actions/attest-sbom e' deprecata dagli autori: actions/attest e' la
+        # stessa azione (attest-sbom ne era solo un involucro) e gli input sono
+        # gli stessi; e' la presenza di sbom-path a scegliere la modalita' SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: 'dist/*.apk'
           sbom-path: 'dist/SpyDetector-v${{ steps.ver.outputs.version }}-release.apk.spdx.json'
