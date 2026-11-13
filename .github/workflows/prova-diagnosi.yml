@@ -1,17 +1,15 @@
 name: Prova delle diagnosi (temporanea)
 
-# Corsa TEMPORANEA. Ipotesi da provare: il passo "Apri/aggiorna la PR" di
+# Corsa TEMPORANEA. Domanda: perche' il passo "Apri/aggiorna la PR" di
 # security-updates.yml moriva con "The process '/usr/bin/git' failed with exit
-# code 1" solo nelle corse in cui update-pins.py aveva modificato file dentro
-# .github/workflows/. Il GITHUB_TOKEN e' un installation token e il server
-# rifiuta i push che toccano le workflow senza il permesso `workflows`:
-# "refusing to allow a GitHub App to create or update workflow ... without
-# `workflows` permission" -> git push esce 1.
+# code 1"? Le corse fallite sono quelle in cui update-pins.py aveva modificato
+# file dentro .github/workflows/, e il GITHUB_TOKEN non ha uno scope
+# "workflows" concedibile (actionlint lo conferma: gli scope disponibili sono
+# actions, attestations, checks, contents, ... e workflows non c'e').
 #
-# A/B: due job identici, stessa modifica a un file di workflow, stessa action;
-# cambia solo il permesso `workflows`. base = questo branch, cosi' la base di
-# lavoro coincide con la base della PR e l'action non fa cherry-pick (che era
-# l'altro fallimento, gia' spiegato). Le PR nascono bozza e vengono chiuse.
+# A/B: stessa action, stessi permessi (contents + pull-requests), stesso branch
+# di base; cambia solo COSA viene modificato — un file di workflow oppure un
+# file di documentazione. Le PR nascono bozza e vengono chiuse nello stesso job.
 # File da eliminare appena la risposta e' nota.
 
 on:
@@ -26,8 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  senza:
-    name: Push di una workflow SENZA permesso workflows
+  modifica-workflow:
+    name: PR che tocca un file di workflow
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,68 +39,69 @@ jobs:
           echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
           git --no-pager status --porcelain -unormal
 
-      - name: create-pull-request senza workflows write
+      - name: create-pull-request
         id: pr
         continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/senza-workflows
+          branch: prova/tocca-workflow
           base: ${{ github.ref_name }}
           draft: true
-          title: 'prova: senza permesso workflows (bozza)'
+          title: 'prova: modifica a un file di workflow (bozza)'
           commit-message: 'prova: modifica a un file di workflow'
 
-      - name: Esito
+      - name: Esito e pulizia
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          echo "::notice::SENZA workflows write: esito = ${{ steps.pr.outcome }}"
-          PR="$(gh pr list --state open --head prova/senza-workflows --json number --jq '.[0].number // empty')"
+          echo "::notice::modifica a una WORKFLOW: esito del passo PR = ${{ steps.pr.outcome }}"
+          PR="$(gh pr list --state open --head prova/tocca-workflow --json number --jq '.[0].number // empty')"
           if [ -n "$PR" ]; then
-            gh pr close "$PR" --delete-branch >/dev/null 2>&1 || true
+            gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
+              || echo "::warning::chiusura della bozza #$PR non riuscita"
           fi
 
-  con:
-    name: Push di una workflow CON permesso workflows
+  modifica-codice:
+    name: PR che tocca solo documentazione
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Modifica a un file di workflow
+      - name: Modifica a un file di documentazione
         run: |
           set -euo pipefail
-          echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
+          echo "" >> docs/security/iocs.md
           git --no-pager status --porcelain -unormal
 
-      - name: create-pull-request con workflows write
+      - name: create-pull-request
         id: pr
         continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/con-workflows
+          branch: prova/tocca-docs
           base: ${{ github.ref_name }}
           draft: true
-          title: 'prova: con permesso workflows (bozza)'
-          commit-message: 'prova: modifica a un file di workflow'
+          title: 'prova: modifica alla documentazione (bozza)'
+          commit-message: 'prova: modifica alla documentazione'
 
-      - name: Esito
+      - name: Esito e pulizia
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          echo "::notice::CON workflows write: esito = ${{ steps.pr.outcome }}"
-          PR="$(gh pr list --state open --head prova/con-workflows --json number --jq '.[0].number // empty')"
+          echo "::notice::modifica alla DOCUMENTAZIONE: esito del passo PR = ${{ steps.pr.outcome }}"
+          PR="$(gh pr list --state open --head prova/tocca-docs --json number --jq '.[0].number // empty')"
           if [ -n "$PR" ]; then
-            gh pr close "$PR" --delete-branch >/dev/null 2>&1 || true
+            gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
+              || echo "::warning::chiusura della bozza #$PR non riuscita"
           fi
