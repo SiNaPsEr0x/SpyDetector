@@ -313,6 +313,16 @@ def inj_invalid_yaml(d):
           read(d, ".github/workflows/secrets.yml") + "\n  rotto: non: yaml\n")
 
 
+def inj_gh_no_repo(d):
+    """Toglie GH_REPO: automerge non fa checkout, quindi gh non trova la repo."""
+    rel = ".github/workflows/automerge.yml"
+    lines = read(d, rel).split("\n")
+    out = [line for line in lines if not re.match(r"^\s*GH_REPO:", line)]
+    if len(out) == len(lines):
+        raise AssertionError("nessuna riga GH_REPO in %s" % rel)
+    write(d, rel, "\n".join(out))
+
+
 def inj_backtick_in_run(d):
     """Backtick markdown in un echo dentro un blocco run: diventa un comando."""
     sub(d, ".github/workflows/ci.yml",
@@ -370,6 +380,7 @@ MANUAL = [
      inj_merge_no_redispatch, None),
     ("PR aperta col token di default", "wf-pr-token-default",
      inj_pr_token_default, None),
+    ("gh senza repo di riferimento", "wf-gh-no-repo", inj_gh_no_repo, None),
     ("backtick in un blocco run", "sh-backtick", inj_backtick_in_run, None),
     ("backtick in uno script shell", "sh-backtick", inj_backtick_in_sh, None),
     # rilevato solo se pyyaml e' installato (dipendenza in scripts/requirements.txt)

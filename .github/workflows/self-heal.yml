@@ -294,13 +294,15 @@ jobs:
         if: steps.outcome.outputs.open-pr == 'true' && steps.cfg.outputs.has-pat == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # esplicito: gh non deve dipendere dal remoto del checkout
+          GH_REPO: ${{ github.repository }}
           HEAL_BRANCH: ${{ steps.cfg.outputs.branch }}
         run: |
           set -euo pipefail
-          if gh workflow run ci.yml --ref "$HEAL_BRANCH"; then
+          if ERR=$(gh workflow run ci.yml --ref "$HEAL_BRANCH" 2>&1); then
             echo "CI riavviata su $HEAL_BRANCH"
           else
-            echo "::warning::CI non riavviata su $HEAL_BRANCH: va lanciata a mano"
+            echo "::warning::CI non riavviata su $HEAL_BRANCH: $ERR"
           fi
           {
             echo "### PR senza eventi (GITHUB_TOKEN)"

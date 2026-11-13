@@ -1016,6 +1016,7 @@ def gate_actions(ctx):
         _check_merge_redispatch(out, ctx, wf, path)
         _check_pr_token(out, ctx, wf, path)
         _check_backticks(out, ctx, wf, path)
+        _check_gh_repo(out, ctx, wf, path)
     return out
 
 
@@ -1115,6 +1116,49 @@ def _check_backticks(out, ctx, wf, path):
         for ln, _line in _backtick_lines(text):
             out.append(Finding("actions", "sh-backtick", ERROR, path, first + ln - 1,
                                BACKTICK_MSG))
+
+
+GH_REPO_CMD_RE = re.compile(r"\bgh\s+(workflow|pr|issue|run|release|repo|cache"
+                            r"|label|secret|variable|attestation|ruleset)\b")
+CHECKOUT_USE_RE = re.compile(r"uses:\s*[\w.\-/]*checkout\b")
+GH_REPO_ENV_RE = re.compile(r"^\s*GH_REPO\s*:", re.M)
+
+
+def _check_gh_repo(out, ctx, wf, path):
+    """`gh` in un job senza checkout e senza GH_REPO: non sa su quale repo agire.
+
+    gh ricava la repo dal remoto git del checkout; `GITHUB_REPOSITORY`, che il
+    runner esporta, non gli basta e il comando muore con "failed to determine
+    base repo". `gh api` resta fuori: con il path esplicito la repo di base non
+    gli serve. Le action composite sono escluse: il checkout lo fa chi le usa.
+    """
+    if not wf.jobs:
+        return
+    lines = wf.text.split("\n")
+    jobs = sorted(wf.jobs.values(), key=lambda j: j["line"])
+    ranges = {}
+    for i, job in enumerate(jobs):
+        start = job["line"] - 1
+        end = jobs[i + 1]["line"] - 1 if i + 1 < len(jobs) else len(lines)
+        ranges[job["id"]] = "\n".join(lines[start:end])
+    for step in wf.steps:
+        if step.get("job") not in ranges:
+            continue
+        run = step["keys"].get("run")
+        if run is None or not run.block:
+            continue
+        code = "\n".join(t for _, t in run.block)
+        cmd = GH_REPO_CMD_RE.search(code)
+        if not cmd or "--repo" in code:
+            continue
+        job_text = ranges[step["job"]]
+        if CHECKOUT_USE_RE.search(job_text) or GH_REPO_ENV_RE.search(job_text):
+            continue
+        out.append(Finding("actions", "wf-gh-no-repo", ERROR, path, run.line,
+                           "`gh %s` in un job senza checkout e senza `GH_REPO`: gh "
+                           "non determina la repo (GITHUB_REPOSITORY non basta) e il "
+                           "comando fallisce — metti `GH_REPO` nell'`env:` del passo"
+                           % cmd.group(1)))
 
 
 CREATE_PR_RE = re.compile(r"uses:\s*peter-evans/create-pull-request\b")

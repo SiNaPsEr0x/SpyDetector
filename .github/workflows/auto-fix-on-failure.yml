@@ -166,6 +166,8 @@ jobs:
         if: steps.ctx.outputs.skip == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh non deve dipendere dal remoto del checkout per sapere la repo
+          GH_REPO: ${{ github.repository }}
           BRANCH: ${{ steps.ctx.outputs.branch }}
           WF_NAME: ${{ steps.ctx.outputs.workflow }}
           RUN_ID: ${{ steps.ctx.outputs.run-id }}
@@ -189,6 +191,7 @@ jobs:
         if: steps.ctx.outputs.skip == '' && steps.ctx.outputs.pr != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           PR: ${{ steps.ctx.outputs.pr }}
           WF_NAME: ${{ steps.ctx.outputs.workflow }}
           RUN_ID: ${{ steps.ctx.outputs.run-id }}
