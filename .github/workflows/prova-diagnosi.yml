@@ -1,17 +1,18 @@
 name: Prova delle diagnosi (temporanea)
 
-# Corsa TEMPORANEA per trovare perche' il passo "Apri/aggiorna la PR con gli
-# aggiornamenti" di security-updates.yml muore con
-# "The process '/usr/bin/git' failed with exit code 1" e nessuna PR e' mai nata.
+# Corsa TEMPORANEA. Ipotesi da provare: il passo "Apri/aggiorna la PR" di
+# security-updates.yml moriva con "The process '/usr/bin/git' failed with exit
+# code 1" solo nelle corse in cui update-pins.py aveva modificato file dentro
+# .github/workflows/. Il GITHUB_TOKEN e' un installation token e il server
+# rifiuta i push che toccano le workflow senza il permesso `workflows`:
+# "refusing to allow a GitHub App to create or update workflow ... without
+# `workflows` permission" -> git push esce 1.
 #
-# Due riproduzioni in parallelo, entrambe con create-pull-request vera:
-#   minima: checkout shallow + una modifica dentro add-paths
-#   reale : l'intera sequenza notturna (pin, threat DB, toolchain, build,
-#           verifica, Trivy) e poi la PR
-# Le PR nascono BOZZA (l'API rifiuta di fondere una bozza, quindi automerge non
-# puo' toccare main) e un passo finale le chiude ed elimina i branch.
-# gh attestation verify e' gia' stato provato: funziona sull'APK pubblicato.
-# Questo file viene eliminato appena la causa e' nota.
+# A/B: due job identici, stessa modifica a un file di workflow, stessa action;
+# cambia solo il permesso `workflows`. base = questo branch, cosi' la base di
+# lavoro coincide con la base della PR e l'action non fa cherry-pick (che era
+# l'altro fallimento, gia' spiegato). Le PR nascono bozza e vengono chiuse.
+# File da eliminare appena la risposta e' nota.
 
 on:
   push:
@@ -25,170 +26,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  minima:
-    name: Riproduzione minima
+  senza:
+    name: Push di una workflow SENZA permesso workflows
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     steps:
-      # nessuna fetch-depth: shallow come security-updates.yml
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Una modifica dentro add-paths
+      - name: Modifica a un file di workflow
         run: |
           set -euo pipefail
-          echo "" >> docs/security/iocs.md
-          echo "modificato: docs/security/iocs.md"
+          echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
+          git --no-pager status --porcelain -unormal
 
-      - name: create-pull-request con gli input di security-updates.yml
+      - name: create-pull-request senza workflows write
         id: pr
         continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/cpr-minima
-          base: main
+          branch: prova/senza-workflows
+          base: ${{ github.ref_name }}
           draft: true
-          delete-branch: false
-          title: 'prova: riproduzione minima (bozza, da chiudere)'
-          commit-message: |
-            prova: riproduzione minima
+          title: 'prova: senza permesso workflows (bozza)'
+          commit-message: 'prova: modifica a un file di workflow'
 
-            File temporaneo di diagnosi, nessuna modifica reale.
-          labels: |
-            automation
-          add-paths: |
-            .github/workflows
-            tools/toolchain.env
-            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
-            data/threat-seed.txt
-            data/official-signatures.txt
-            docs/security/
-
-      - name: Esito e pulizia
+      - name: Esito
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          echo "::notice::minima: esito del passo PR = ${{ steps.pr.outcome }}"
-          for B in prova/cpr-minima prova/cpr-reale; do
-            PR="$(gh pr list --state open --head "$B" --json number --jq '.[0].number // empty')"
-            if [ -n "$PR" ]; then
-              echo "chiudo la bozza #$PR e cancello $B"
-              gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
-                || echo "::warning::chiusura di #$PR non riuscita"
-            fi
-          done
+          echo "::notice::SENZA workflows write: esito = ${{ steps.pr.outcome }}"
+          PR="$(gh pr list --state open --head prova/senza-workflows --json number --jq '.[0].number // empty')"
+          if [ -n "$PR" ]; then
+            gh pr close "$PR" --delete-branch >/dev/null 2>&1 || true
+          fi
 
-  reale:
-    name: Riproduzione della corsa notturna
+  con:
+    name: Push di una workflow CON permesso workflows
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      workflows: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-
-      - name: Versione action marketplace piu' recente
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/update-pins.py
-
-      - name: Knowledge base stalkerware (validata)
-        run: python3 scripts/update-threat-db.py
-
-      - name: Toolchain build (validator - scarica, prova e pinna)
+      - name: Modifica a un file di workflow
         run: |
-          set +e
-          python3 scripts/update-toolchain.py | tee toolchain-update.log
-          RC=${PIPESTATUS[0]}
-          set -e
-          [ "$RC" = "0" ] || [ "$RC" = "3" ]
-
-      - name: Cache toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .toolchain
-          key: toolchain-${{ runner.os }}-${{ hashFiles('tools/toolchain.env') }}
-          restore-keys: toolchain-${{ runner.os }}-
-
-      - name: Toolchain pinnato + hash verificato
-        run: ./tools/fetch-toolchain.sh
-
-      - name: BUILD + VERIFICA con le versioni nuove
-        run: |
-          ./build.sh
-          python3 scripts/verify-apk.py dist/*.apk
-
-      - name: Vulnerabilita' dipendenze + file (Trivy)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: table
-          output: trivy-report.txt
-          exit-code: '0'
-
-      - name: Cosa cambierebbe
-        run: |
-          set -uo pipefail
-          # una modifica certa dentro add-paths, perche' la PR nasca comunque
+          set -euo pipefail
           echo "# riga di prova" >> .github/workflows/prova-diagnosi.yml
-          git --no-pager status --porcelain -unormal | head -20
-          echo "--- non ignorati e non tracciati ---"
-          git --no-pager status --porcelain -unormal | grep '^??' | head -10 || true
+          git --no-pager status --porcelain -unormal
 
-      - name: create-pull-request come di notte
+      - name: create-pull-request con workflows write
         id: pr
         continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           token: ${{ secrets.SPD_PR_TOKEN || github.token }}
-          branch: prova/cpr-reale
-          base: main
+          branch: prova/con-workflows
+          base: ${{ github.ref_name }}
           draft: true
-          delete-branch: false
-          title: 'prova: riproduzione della corsa notturna (bozza, da chiudere)'
-          commit-message: |
-            prova: riproduzione notturna
+          title: 'prova: con permesso workflows (bozza)'
+          commit-message: 'prova: modifica a un file di workflow'
 
-            File temporaneo di diagnosi, nessuna modifica reale.
-          labels: |
-            dependencies
-            security
-          add-paths: |
-            .github/workflows
-            tools/toolchain.env
-            app/src/main/java/it/spydetector/app/core/ThreatDbGenerated.java
-            data/threat-seed.txt
-            data/official-signatures.txt
-            docs/security/
-
-      - name: Esito e pulizia
+      - name: Esito
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          echo "::notice::reale: esito del passo PR = ${{ steps.pr.outcome }}"
-          for B in prova/cpr-reale prova/cpr-minima; do
-            PR="$(gh pr list --state open --head "$B" --json number --jq '.[0].number // empty')"
-            if [ -n "$PR" ]; then
-              echo "chiudo la bozza #$PR e cancello $B"
-              gh pr close "$PR" --delete-branch >/dev/null 2>&1 \
-                || echo "::warning::chiusura di #$PR non riuscita"
-            fi
-          done
+          echo "::notice::CON workflows write: esito = ${{ steps.pr.outcome }}"
+          PR="$(gh pr list --state open --head prova/con-workflows --json number --jq '.[0].number // empty')"
+          if [ -n "$PR" ]; then
+            gh pr close "$PR" --delete-branch >/dev/null 2>&1 || true
+          fi
