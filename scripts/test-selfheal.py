@@ -313,6 +313,40 @@ def inj_invalid_yaml(d):
           read(d, ".github/workflows/secrets.yml") + "\n  rotto: non: yaml\n")
 
 
+def inj_backtick_in_run(d):
+    """Backtick markdown in un echo dentro un blocco run: diventa un comando."""
+    sub(d, ".github/workflows/ci.yml",
+        '          "$JAVA" -jar "$APKSIGNER" verify',
+        '          echo "fatto: vedi `docs/SECURITY.md`"\n'
+        '          "$JAVA" -jar "$APKSIGNER" verify')
+
+
+def inj_backtick_in_sh(d):
+    """Stesso difetto in uno script shell, dove actionlint non guarda."""
+    rel = "build.sh"
+    write(d, rel, read(d, rel) + '\necho "APK pronto: vedi `README.md`"\n')
+
+
+def inj_pr_token_default(d):
+    """Toglie il PAT: la PR del bot non innesca piu' nessun workflow."""
+    rel = ".github/workflows/security-updates.yml"
+    text = read(d, rel)
+    needle = "          token: ${{ secrets.SPD_PR_TOKEN || github.token }}\n"
+    if needle not in text:
+        raise AssertionError("riga `token:` assente in %s" % rel)
+    write(d, rel, text.replace(needle, "", 1))
+
+
+def inj_merge_no_redispatch(d):
+    """Toglie il riavvio esplicito delle workflow dopo il merge."""
+    rel = ".github/workflows/automerge.yml"
+    text = read(d, rel)
+    marker = "      - name: Riavvia le workflow"
+    if marker not in text:
+        raise AssertionError("passo di riavvio assente in %s" % rel)
+    write(d, rel, text[:text.index(marker)])
+
+
 def inj_unverified_download(d):
     sub(d, ".github/workflows/ci.yml", "  build:\n",
         "  scarica:\n    runs-on: ubuntu-latest\n    steps:\n"
@@ -331,6 +365,13 @@ MANUAL = [
      inj_dangerous_permission, None),
     ("script injection", "wf-run-injection", inj_injection, None),
     ("binario non verificato", "wf-unverified-download", inj_unverified_download, None),
+    # chi fonde una PR col GITHUB_TOKEN deve riavviare a mano le workflow su main
+    ("merge senza riavvio delle workflow", "wf-merge-no-redispatch",
+     inj_merge_no_redispatch, None),
+    ("PR aperta col token di default", "wf-pr-token-default",
+     inj_pr_token_default, None),
+    ("backtick in un blocco run", "sh-backtick", inj_backtick_in_run, None),
+    ("backtick in uno script shell", "sh-backtick", inj_backtick_in_sh, None),
     # rilevato solo se pyyaml e' installato (dipendenza in scripts/requirements.txt)
     ("YAML non valido", "yaml-invalid", inj_invalid_yaml, None),
     # il pin si puo' rifare, ma serve l'API GitHub: offline resta in carico a noi

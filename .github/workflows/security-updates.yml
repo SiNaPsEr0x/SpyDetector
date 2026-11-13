@@ -115,6 +115,10 @@ jobs:
       - name: Apri/aggiorna la PR con gli aggiornamenti
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
+          # senza un PAT la PR non innesca nessun workflow (CI e automerge
+          # non partirebbero): se SPD_PR_TOKEN manca si ripiega sul token
+          # della corsa e il ciclo riavvia la CI a mano sul branch
+          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
           branch: chore/security-updates
           delete-branch: false
           title: 'chore(security): aggiornamenti giornalieri toolchain, action e threat DB'

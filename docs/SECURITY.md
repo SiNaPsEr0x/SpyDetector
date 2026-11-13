@@ -24,8 +24,8 @@ locale. Le stesse verifiche girano in CI e in locale (`./build.sh`).
 | **Correzioni deterministiche** | ogni regola riparabile ha una trasformazione idempotente e verificabile: niente patch inventate | `scripts/autofix.py` |
 | **Self-healing** | ciclo gate → correzione → gate (fino a N round), PR solo se chiude verde, regressione annullata con git | `self-heal.yml`, `scripts/selfheal.py` |
 | **Innesco automatico** | se una pipeline fallisce, il ciclo riparte sul branch che ha fallito e avvisa nella PR | `auto-fix-on-failure.yml` |
-| **Self-test del ciclo** | 54 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
-| **Automerge sicuro** | le PR di aggiornamento vengono unite solo se **tutti** i check sono verdi (le major restano manuali) | `automerge.yml` |
+| **Self-test del ciclo** | 89 controlli: difetti iniettati in una copia del repo, il ciclo deve ripararli tutti e non toccare cio' che non sa riparare | `scripts/test-selfheal.py` |
+| **Automerge sicuro** | le PR vengono unite solo se **tutti** i check sono verdi (le major di Dependabot restano manuali); dopo il merge riavvia Release e Malware/IOC, perche' un merge fatto col `GITHUB_TOKEN` non genera eventi push | `automerge.yml` |
 | **Postura repo** | OpenSSF Scorecard settimanale | `repo-scorecard.yml` |
 | **Aggiornamenti** | job giornaliero che aggiorna toolchain/action/threat DB, **ricompila e verifica**, e apre PR solo se tutto passa | `security-updates.yml` |
 
@@ -96,7 +96,10 @@ una issue con il report, invece di inventare una patch:
 | `java-check-not-registered` | attivare un'area di scansione cambia cosa vede l'utente |
 | `wf-run-injection`, `wf-pr-target-write` | riscrivere il flusso di una workflow puo' rompere la CI |
 | `wf-unverified-download` | scegliere la fonte e l'hash di un binario e' una decisione di supply chain |
+| `wf-merge-no-redispatch` | decidere quali pipeline riavviare dopo un merge automatico e' progettazione della CI |
+| `wf-pr-token-default` | fornire un PAT al ciclo e' una scelta di chi configura la repo: il token non si puo' inventare |
 | `sh-syntax`, `py-syntax`, `yaml-invalid` | sintassi rotta: la causa non e' deducibile in modo sicuro |
+| `sh-backtick` | un backtick fuori dagli apici singoli e' un comando: se era testo va escapato, se era sostituzione legacy va riscritto `$(...)` |
 | `data-seed-*`, `docs-link-broken` | contenuti curati a mano |
 
 ### Le sicurezze del ciclo
@@ -106,9 +109,32 @@ una issue con il report, invece di inventare una patch:
 | correzione che peggiora le cose | se gli errori **aumentano**, `--revert-on-regression` fa `git reset --hard` + `clean` e non apre nessuna PR |
 | loop infinito fra CI e auto-fix | tentativi contati sul branch (marker `[self-heal]` nei commit, tetto 3) + tetto di 8 corse/24h nell'innesco + `concurrency` su entrambi |
 | merge di una correzione sbagliata | la PR viene riesaminata da **tutta** la CI e `automerge.yml` la unisce solo se ogni check e' verde |
+| correzione unita ma non pubblicata | GitHub non innesca workflow per gli eventi generati dal `GITHUB_TOKEN`: dopo il merge `automerge.yml` riavvia esplicitamente Release (nuovo APK) e Malware/IOC con `gh workflow run`, e il gate `wf-merge-no-redispatch` impedisce che il riavvio venga tolto |
 | modifiche fuori controllo | il ciclo lavora solo sui file tracciati da git; i report finiscono in `build/` (ignorato) |
 | esecuzione di codice arbitrario | le correzioni sono regole fisse in `scripts/autofix.py`: nessun LLM, nessun download, nessuna action nuova; la rete serve solo a `update-pins.py` (API GitHub) |
 | il correttore si rompe | `scripts/test-selfheal.py` gira in CI prima del ciclo: difetti iniettati in una copia del repo, deve ripararli tutti |
+
+### Il segreto opzionale `SPD_PR_TOKEN`
+
+GitHub non innesca workflow per gli eventi generati dal `GITHUB_TOKEN` di una
+corsa (regola anti-ricorsione; le eccezioni sono `workflow_dispatch` e
+`repository_dispatch`). Il ciclo tocca questo limite in due punti:
+
+| punto | cosa succede col solo `GITHUB_TOKEN` | come viene chiuso |
+|---|---|---|
+| `self-heal.yml` apre la PR | sulla PR non parte **nessun** check e `automerge.yml` non la vede | la CI viene riavviata a mano con `gh workflow run ci.yml --ref fix/self-heal/<slug>`; il merge resta a una persona |
+| `automerge.yml` fonde la PR | i push verso main non partono: niente Release, niente scansioni | `automerge.yml` riavvia esplicitamente `release.yml` e `malware-scan.yml` |
+
+Per chiudere **anche** il primo punto senza intervento umano serve un PAT nel
+segreto `SPD_PR_TOKEN` (fine-grained: solo questa repo, `Contents` e
+`Pull requests` in scrittura, scadenza breve). Le workflow lo usano come
+`${{ secrets.SPD_PR_TOKEN || github.token }}`: se il segreto manca si ripiega
+sul token della corsa, la PR viene aperta lo stesso, la CI viene riavviata a
+mano e il corpo della PR spiega cosa manca. Nessun passo fallisce per questo.
+
+Il gate `wf-pr-token-default` segnala ogni `create-pull-request` senza `token:`
+esplicito, e `wf-merge-no-redispatch` segnala ogni merge senza riavvio: cosi' la
+scorciatoia non puo' tornare indietro in silenzio.
 
 ### Provarlo in locale
 
@@ -158,3 +184,11 @@ vulnerability*) invece di una issue pubblica. Risposta attesa entro 7 giorni.
 - Code scanning / Dependabot alerts / secret scanning richiedono che le
   funzioni di sicurezza siano abilitate nelle impostazioni del repository
   (Settings → Code security). Le workflow caricano i risultati appena attive.
+- In CI `actionlint` applica shellcheck ai blocchi `run:` e **boccia anche gli
+  avvisi di stile** (es. SC2006 sui backtick). In locale i gate coprono la
+  sintassi (`bash -n`), i backtick (`sh-backtick`) e — se shellcheck e'
+  installato — i suoi esiti, che pero' restano non bloccanti perche' la
+  versione cambia da un ambiente all'altro. Un giro in CI resta quindi
+  l'ultima parola sulle workflow.
+- Senza il segreto `SPD_PR_TOKEN` il ciclo **non si chiude da solo**: apre la
+  PR e riavvia la CI a mano, ma il merge resta a una persona (vedi sopra).

@@ -110,6 +110,12 @@ codice generato non allineato): per tutto il resto apre una issue invece di
 inventare una patch. Se una correzione peggiora le cose, viene annullata con
 `git reset`.
 
+Perche' la PR del bot venga controllata **e fusa** da sola serve il segreto
+`SPD_PR_TOKEN` (un PAT con `Contents` e `Pull requests` in scrittura): una PR
+creata col solo `GITHUB_TOKEN` non innesca nessun workflow. Senza il segreto il
+ciclo apre comunque la PR e riavvia la CI a mano sul branch di correzione;
+dettagli in [docs/SECURITY.md](docs/SECURITY.md).
+
 Altri script utili:
 
 | script | cosa fa |
