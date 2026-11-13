@@ -7,7 +7,10 @@ name: Prova dell'attestazione SBOM
 # Questo file viene eliminato subito dopo la prova.
 
 on:
-  workflow_dispatch:
+  # non workflow_dispatch: una workflow richiamabile a mano deve gia' esistere
+  # sul branch predefinito, quindi qui si innesta sul push del branch di lavoro
+  push:
+    branches: ['arena/**']
 
 permissions:
   contents: read
