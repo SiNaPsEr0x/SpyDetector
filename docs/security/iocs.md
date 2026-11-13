@@ -15,3 +15,4 @@ costruire l'APK (npm + PyPI): hash, host, script di install, host di esfiltrazio
 | ✅ | JDK: struttura attesa (bin/java presente) |
 
 **Esito: PASSATO** (0 fail, 0 warning)
+
