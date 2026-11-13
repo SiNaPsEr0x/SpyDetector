@@ -264,7 +264,11 @@ jobs:
           echo "esito: stato=$STATUS PR=$OPEN_PR issue=$NEEDS_HUMAN"
 
       - name: Apri o aggiorna la PR con le correzioni
+        id: pr
         if: steps.outcome.outputs.open-pr == 'true'
+        # se la repo vieta a Actions di creare PR, il passo fallisce: le
+        # correzioni sono gia' nel branch remoto e il passo seguente le salva
+        continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           # senza un PAT la PR non innesca nessun workflow (CI e automerge
@@ -285,6 +289,69 @@ jobs:
           labels: |
             self-heal
             automation
+
+      - name: Se la PR non si puo' creare, non perdere il lavoro
+        # create-pull-request pusha il branch PRIMA di creare la PR, quindi le
+        # correzioni esistono gia' in remoto: vanno rese azionabili a mano e il
+        # motivo va detto chiaro, invece di far morire il job in silenzio.
+        if: steps.outcome.outputs.open-pr == 'true' && steps.pr.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HEAL_BRANCH: ${{ steps.cfg.outputs.branch }}
+          BASE: ${{ steps.cfg.outputs.base }}
+          CHANGED: ${{ steps.heal.outputs.changed-files }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          echo "::error::PR non creata: a GitHub Actions non e' permesso creare pull request in questa repo"
+          {
+            echo "Il ciclo di self-healing ha riparato il branch $BASE e ha pushato le"
+            echo "correzioni, ma non ha potuto aprire la pull request."
+            echo ""
+            echo "| cosa | valore |"
+            echo "|---|---|"
+            echo "| branch con le correzioni | $HEAL_BRANCH |"
+            echo "| base | $BASE |"
+            echo "| file modificati | $CHANGED |"
+            echo "| corsa | $RUN_URL |"
+            echo ""
+            echo "## Per sbloccare il ciclo (una delle due)"
+            echo ""
+            echo "1. Settings -> Actions -> General -> Workflow permissions: attiva"
+            echo "   **Allow GitHub Actions to create and approve pull requests**."
+            echo "2. Oppure aggiungi il segreto **SPD_PR_TOKEN** (PAT fine-grained su"
+            echo "   questa repo, Contents e Pull requests in scrittura): le workflow"
+            echo "   lo usano gia' come prima scelta, col token di corsa come riserva."
+            echo ""
+            echo "Intanto le correzioni sono nel branch; per aprirle a mano:"
+            echo ""
+            echo "    gh pr create --base $BASE --head $HEAL_BRANCH"
+          } > build/pr-blocked.md
+
+          # una sola issue per branch: il ciclo gira anche ogni notte
+          if gh issue list --state open --json number,title \
+             | grep -F "$HEAL_BRANCH" >/dev/null 2>&1; then
+            echo "issue gia' aperta per $HEAL_BRANCH: nessun duplicato"
+          elif gh issue create --label self-heal \
+               --title "[self-heal] PR bloccata per $HEAL_BRANCH" \
+               --body-file build/pr-blocked.md; then
+            echo "issue aperta: il lavoro resta azionabile"
+          elif gh issue create --title "[self-heal] PR bloccata per $HEAL_BRANCH" \
+               --body-file build/pr-blocked.md; then
+            echo "issue aperta senza etichetta (self-heal non esiste)"
+          else
+            echo "::error::nemmeno l'issue si puo' aprire: correzioni solo nel branch $HEAL_BRANCH"
+            exit 1
+          fi
+          {
+            echo "### PR bloccata dai permessi della repo"
+            echo ""
+            echo "Le correzioni sono nel branch $HEAL_BRANCH (base $BASE)."
+            echo "Per riaprire il ciclo: Settings -> Actions -> General ->"
+            echo "*Allow GitHub Actions to create and approve pull requests*,"
+            echo "oppure il segreto SPD_PR_TOKEN."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Riavvia la CI sulla PR se il token di default non la innesca
         # una PR creata col GITHUB_TOKEN non genera eventi: senza questo passo la
