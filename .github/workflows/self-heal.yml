@@ -104,8 +104,6 @@ jobs:
           SPD_IMPROVE: ${{ inputs.improve }}
           SPD_DRY_RUN: ${{ inputs.dry-run }}
           SPD_REASON: ${{ inputs.reason }}
-          # vuoto se il segreto non e' configurato: si ripiega sul GITHUB_TOKEN
-          SPD_PR_TOKEN: ${{ secrets.SPD_PR_TOKEN }}
           REF_NAME: ${{ github.ref_name }}
           EVENT: ${{ github.event_name }}
         run: |
@@ -119,8 +117,6 @@ jobs:
           : "${SPD_IMPROVE:=false}"
           : "${SPD_DRY_RUN:=false}"
           REASON="${SPD_REASON:-$EVENT}"
-          HAS_PAT=false
-          if [ -n "$SPD_PR_TOKEN" ]; then HAS_PAT=true; fi
           SLUG="$(printf '%s' "$BASE" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')"
           {
             echo "base=$BASE"
@@ -132,7 +128,6 @@ jobs:
             echo "improve=$SPD_IMPROVE"
             echo "dry-run=$SPD_DRY_RUN"
             echo "reason=$REASON"
-            echo "has-pat=$HAS_PAT"
           } >> "$GITHUB_OUTPUT"
           echo "branch base: $BASE -> branch di correzione: fix/self-heal/$SLUG"
 
@@ -183,7 +178,6 @@ jobs:
           DRY_RUN: ${{ steps.cfg.outputs.dry-run }}
           BASE: ${{ steps.cfg.outputs.base }}
           REASON: ${{ steps.cfg.outputs.reason }}
-          HAS_PAT: ${{ steps.cfg.outputs.has-pat }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -229,13 +223,11 @@ jobs:
             echo "tutta la CI: se un check fallisce, \`auto-fix-on-failure.yml\` riavvia"
             echo "il ciclo; \`automerge.yml\` la unisce solo se tutto e' verde."
             echo ""
-            if [ "${HAS_PAT:-false}" != "true" ]; then
-              echo "> **Nota**: PR aperta col \`GITHUB_TOKEN\`, che non innesca"
-              echo "> workflow. La CI viene riavviata dal ciclo sul branch di"
-              echo "> correzione, ma il merge automatico richiede il segreto"
-              echo "> \`SPD_PR_TOKEN\` (PAT con contents e pull-requests in scrittura)."
-              echo ""
-            fi
+            echo "> **Nota**: PR aperta col \`GITHUB_TOKEN\`, che non innesca"
+            echo "> workflow. La CI viene riavviata dal ciclo sul branch di"
+            echo "> correzione; il merge lo fa una persona, dopo aver approvato"
+            echo "> le corse in attesa (\`Approve workflows to run\`)."
+            echo ""
             if [ -f build/selfheal.md ]; then cat build/selfheal.md; fi
           } > build/pr-body.md
 
@@ -305,9 +297,9 @@ jobs:
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           # senza un PAT la PR non innesca nessun workflow (CI e automerge
-          # non partirebbero): se SPD_PR_TOKEN manca si ripiega sul token
-          # della corsa e il ciclo riavvia la CI a mano sul branch
-          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
+          # non partirebbero): il ciclo riavvia la CI a mano sul branch e il
+          # merge lo fa una persona
+          token: ${{ github.token }}
           branch: fix/self-heal/${{ steps.cfg.outputs.slug }}
           base: ${{ steps.cfg.outputs.base }}
           delete-branch: true
@@ -341,16 +333,15 @@ jobs:
           BASE: ${{ steps.cfg.outputs.base }}
           CHANGED: ${{ steps.heal.outputs.changed-files }}
           WF_FILES: ${{ steps.patch.outputs.wf-files }}
-          HAS_PAT: ${{ steps.cfg.outputs.has-pat }}
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
           # i muri sono due e vanno nominati per quello che sono
           BLOCCO_WF=false
-          if [ "${WF_FILES:-0}" -gt 0 ] && [ "$HAS_PAT" = "false" ]; then
+          if [ "${WF_FILES:-0}" -gt 0 ]; then
             BLOCCO_WF=true
-            echo "::error::push rifiutato: $WF_FILES dei file corretti stanno in .github/workflows/ e il GITHUB_TOKEN non puo' crearli ne' aggiornarli. Serve il segreto SPD_PR_TOKEN con permesso Workflows"
+            echo "::error::push rifiutato: $WF_FILES dei file corretti stanno in .github/workflows/ e il GITHUB_TOKEN non puo' crearli ne' aggiornarli"
           else
             echo "::error::PR non creata: a GitHub Actions non e' permesso creare pull request in questa repo"
           fi
@@ -371,7 +362,6 @@ jobs:
             echo "| base | $BASE |"
             echo "| file modificati | $CHANGED |"
             echo "| di cui in .github/workflows/ | ${WF_FILES:-0} |"
-            echo "| SPD_PR_TOKEN presente | $HAS_PAT |"
             echo "| corsa | $RUN_URL |"
             echo ""
             if [ "$BLOCCO_WF" = "true" ]; then
@@ -385,21 +375,15 @@ jobs:
               echo "Il token della corsa e' un installation token: lo scope"
               echo "workflows non gli e' concedibile (non compare fra i valori"
               echo "ammessi in permissions:), quindi **nessuna modifica alle"
-              echo "workflow puo' arrivare in una PR senza un PAT**. La spunta"
-              echo "*Allow GitHub Actions to create and approve pull requests*"
-              echo "non c'entra: qui il blocco e' sul push, non sulla PR."
-              echo ""
-              echo "Serve il segreto **SPD_PR_TOKEN**: PAT fine-grained su questa"
-              echo "repo con Contents, Pull requests, Issues e **Workflows** in"
-              echo "scrittura. Le workflow lo usano gia' come prima scelta."
+              echo "workflow puo' arrivare in una PR**. Non si aggiunge nessun"
+              echo "segreto: la correzione resta in una patch da applicare a mano."
+              echo "La spunta *Allow GitHub Actions to create and approve pull"
+              echo "requests* non c'entra: qui il blocco e' sul push, non sulla PR."
             else
-              echo "## Per sbloccare il ciclo (una delle due)"
+              echo "## Per sbloccare il ciclo"
               echo ""
-              echo "1. Settings -> Actions -> General -> Workflow permissions: attiva"
+              echo "Settings -> Actions -> General -> Workflow permissions: attiva"
               echo "   **Allow GitHub Actions to create and approve pull requests**."
-              echo "2. Oppure aggiungi il segreto **SPD_PR_TOKEN** (PAT fine-grained su"
-              echo "   questa repo, Contents e Pull requests in scrittura): le workflow"
-              echo "   lo usano gia' come prima scelta, col token di corsa come riserva."
             fi
             echo ""
             echo "Le correzioni sono $DOVE; per consegnarle a mano:"
@@ -427,8 +411,7 @@ jobs:
             echo ""
             echo "Le correzioni sono nel branch $HEAL_BRANCH (base $BASE)."
             echo "Per riaprire il ciclo: Settings -> Actions -> General ->"
-            echo "*Allow GitHub Actions to create and approve pull requests*,"
-            echo "oppure il segreto SPD_PR_TOKEN."
+            echo "*Allow GitHub Actions to create and approve pull requests*."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Riavvia la CI sulla PR se il token di default non la innesca
@@ -436,7 +419,7 @@ jobs:
         # correzione resterebbe non verificata e automerge non la vedrebbe mai.
         # workflow_dispatch invece e' ammesso, quindi la CI (actionlint, gate,
         # build+verifica APK) gira comunque sul branch di correzione.
-        if: steps.outcome.outputs.open-pr == 'true' && steps.cfg.outputs.has-pat == 'false'
+        if: steps.outcome.outputs.open-pr == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # esplicito: gh non deve dipendere dal remoto del checkout
@@ -444,6 +427,12 @@ jobs:
           HEAL_BRANCH: ${{ steps.cfg.outputs.branch }}
         run: |
           set -euo pipefail
+          # un ref vuoto non e' un errore per gh: ripiegherebbe sul branch
+          # predefinito, riavviando la CI su main invece che sulla PR
+          if [ -z "$HEAL_BRANCH" ]; then
+            echo "::error::branch di correzione vuoto: non so dove riavviare la CI"
+            exit 1
+          fi
           if ERR=$(gh workflow run ci.yml --ref "$HEAL_BRANCH" 2>&1); then
             echo "CI riavviata su $HEAL_BRANCH"
           else
@@ -454,7 +443,8 @@ jobs:
             echo ""
             echo "La PR e' stata aperta col token della corsa, che non innesca"
             echo "workflow: la CI e' stata riavviata a mano su \`$HEAL_BRANCH\`."
-            echo "Per chiudere il ciclo da solo serve il segreto \`SPD_PR_TOKEN\`"
+            echo "Le corse in attesa vanno approvate a mano (\`Approve workflows"
+            echo "to run\`): il merge lo fa una persona."
             echo "(PAT con contents e pull-requests in scrittura)."
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -115,32 +115,31 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Cosa si puo' consegnare senza un PAT
+      - name: Cosa si puo' consegnare col token di corsa
         # Il GITHUB_TOKEN e' un installation token: il server rifiuta i push che
         # creano o aggiornano file in .github/workflows/ con
         # "refusing to allow a GitHub App to create or update workflow ...
         # without `workflows` permission" e git esce 1. Quello scope non e'
-        # concedibile al token di corsa (non esiste in permissions:), quindi
-        # senza SPD_PR_TOKEN gli aggiornamenti dei pin — che stanno tutti nelle
-        # workflow — non possono finire in una PR. Vengono messi da parte in una
-        # patch: il resto della notte viene consegnato lo stesso e i pin restano
-        # recuperabili, invece di far morire il passo e perdere tutto.
+        # concedibile al token di corsa (non esiste in permissions:), quindi gli
+        # aggiornamenti dei pin — che stanno tutti nelle workflow — non possono
+        # finire in una PR. Qui non si usa nessun PAT: le modifiche alle
+        # workflow vengono messe da parte in una patch, il resto della notte
+        # viene consegnato lo stesso e i pin restano recuperabili, invece di far
+        # morire il passo e perdere tutto.
         id: filtro
-        env:
-          SPD_PR_TOKEN: ${{ secrets.SPD_PR_TOKEN }}
         run: |
           set -uo pipefail
           mkdir -p build
           WF=$(git --no-pager diff --name-only -- .github/workflows | wc -l)
           echo "file di workflow modificati dagli aggiornamenti: $WF"
-          if [ -n "$SPD_PR_TOKEN" ] || [ "$WF" -eq 0 ]; then
+          if [ "$WF" -eq 0 ]; then
             echo "bloccati=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git --no-pager diff -- .github/workflows > build/pin-bloccati.patch
           git checkout -- .github/workflows
           echo "bloccati=$WF" >> "$GITHUB_OUTPUT"
-          echo "::warning::$WF file di workflow aggiornati ma non consegnabili col token di corsa: serve SPD_PR_TOKEN con permesso Workflows. Patch salvata in build/pin-bloccati.patch"
+          echo "::warning::$WF file di workflow aggiornati ma non consegnabili col token di corsa: patch salvata in build/pin-bloccati.patch, il resto viene consegnato lo stesso"
 
       - name: Testo della PR
         # prima qui c'era un $(git diff --stat) scritto dentro body:, che non e'
@@ -168,10 +167,10 @@ jobs:
         continue-on-error: true
         uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
-          # senza un PAT la PR non innesca nessun workflow (CI e automerge
-          # non partirebbero): se SPD_PR_TOKEN manca si ripiega sul token
-          # della corsa e il ciclo riavvia la CI a mano sul branch
-          token: ${{ secrets.SPD_PR_TOKEN || github.token }}
+          # token esplicito e nessun PAT: le PR aperte cosi' non innescano
+          # workflow (CI e automerge non partirebbero), quindi il ciclo
+          # riavvia la CI a mano sul branch e il merge lo fa una persona
+          token: ${{ github.token }}
           branch: chore/security-updates
           delete-branch: false
           title: 'chore(security): aggiornamenti giornalieri toolchain, action e threat DB'
@@ -224,12 +223,11 @@ jobs:
             echo "Il token della corsa non puo' creare o aggiornare file in"
             echo ".github/workflows/: il server risponde _refusing to allow a GitHub"
             echo "App to create or update workflow ... without workflows permission_."
-            echo "Lo scope workflows non e' concedibile al GITHUB_TOKEN, quindi per"
-            echo "consegnare gli aggiornamenti delle action serve il segreto"
-            echo "**SPD_PR_TOKEN**: PAT fine-grained su questa repo con Contents,"
-            echo "Pull requests, Issues e **Workflows** in scrittura."
+            echo "Lo scope workflows non e' concedibile al GITHUB_TOKEN, quindi gli"
+            echo "aggiornamenti delle action non possono arrivare in una PR: nessun"
+            echo "segreto lo cambia, si consegnano a mano."
             echo ""
-            echo "Intanto le modifiche messe da parte sono qui sotto (oppure"
+            echo "Le modifiche messe da parte sono qui sotto (oppure"
             echo "nell'artefatto della corsa): si possono applicare con"
             echo "git apply."
             echo ""
@@ -238,7 +236,7 @@ jobs:
             echo '```'
           } > build/aggiornamenti-bloccati.md
 
-          TITOLO="[security] aggiornamenti delle action non consegnabili senza SPD_PR_TOKEN"
+          TITOLO="[security] aggiornamenti delle action da applicare a mano"
           if gh issue list --state open --json title | grep -F "$TITOLO" >/dev/null 2>&1; then
             echo "issue gia' aperta: nessun duplicato"
           elif gh issue create --label security --title "$TITOLO" \

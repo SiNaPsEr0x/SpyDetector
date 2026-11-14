@@ -110,10 +110,10 @@ codice generato non allineato): per tutto il resto apre una issue invece di
 inventare una patch. Se una correzione peggiora le cose, viene annullata con
 `git reset`.
 
-Perche' la PR del bot venga fusa **senza mani** serve il segreto `SPD_PR_TOKEN`
-(un PAT con `Contents`, `Pull requests` e `Workflows` in scrittura): con il solo
-token di corsa la PR viene creata e il ciclo la fa verificare, ma i check
-innescati dalla PR restano in attesa di un'approvazione umana, e le modifiche che
+La repo usa **solo il `GITHUB_TOKEN` di corsa, nessun PAT**. Le conseguenze,
+dette per quello che sono: la PR del bot viene creata e il ciclo la fa
+verificare, ma i check innescati dalla PR restano in attesa di un'approvazione
+umana (`Approve workflows to run`) e il merge lo fa una persona; le modifiche che
 toccano `.github/workflows/` non possono proprio essere pushate — il server le
 rifiuta, quindi finiscono in una patch allegata alla corsa e in una issue.
 Dettagli ed evidenze in [docs/SECURITY.md](docs/SECURITY.md).

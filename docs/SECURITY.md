@@ -117,17 +117,20 @@ una issue con il report, invece di inventare una patch:
 | esecuzione di codice arbitrario | le correzioni sono regole fisse in `scripts/autofix.py`: nessun LLM, nessun download, nessuna action nuova; la rete serve solo a `update-pins.py` (API GitHub) |
 | il correttore si rompe | `scripts/test-selfheal.py` gira in CI prima del ciclo: difetti iniettati in una copia del repo, deve ripararli tutti |
 
-### Token, PR del bot e il segreto `SPD_PR_TOKEN`
+### Token e PR del bot (solo `GITHUB_TOKEN`, nessun PAT)
 
-Il ciclo apre e fonde PR con l'identita' di GitHub Actions, e qui GitHub mette
-tre ostacoli diversi. Sono stati verificati tutti e tre in CI, non dedotti.
+Il ciclo apre PR con l'identita' di GitHub Actions. La repo **non usa nessun
+personal access token**: ogni passo gira col `GITHUB_TOKEN` della corsa, e le
+cose che quel token non puo' fare vengono messe da parte e dette, invece di
+essere delegate a un segreto in piu'. Gli ostacoli sono quattro, tutti
+verificati in CI e non dedotti.
 
 | ostacolo | cosa succede | come viene chiuso |
 |---|---|---|
 | gli eventi generati dal `GITHUB_TOKEN` non innescano workflow (eccezioni: `workflow_dispatch` e `repository_dispatch`) | un merge automatico non fa partire ne' Release ne' le scansioni su main | `automerge.yml` riavvia esplicitamente `release.yml` e `malware-scan.yml`, e solo se la PR era verso il branch predefinito. Verificato: v0.0.7 e v0.0.8 pubblicate dopo i merge di #17 e #19 |
 | senza checkout `gh` non determina la repo (`GITHUB_REPOSITORY` non gli basta) | il riavvio falliva e il passo risultava comunque verde | `GH_REPO` esplicito nei passi con `gh` + gate `wf-gh-no-repo` |
 | **Settings → Actions → General → “Allow GitHub Actions to create and approve pull requests”** disattivato | `GitHub Actions is not permitted to create or approve pull requests`: la PR non nasce proprio | il ciclo non perde nulla (`continue-on-error`, issue `self-heal` col branch curato, `::error::`). Con la spunta attiva la PR nasce: verificato su #20, autore `app/github-actions` |
-| il token della corsa **non può creare né aggiornare file in `.github/workflows/`** | il server respinge il push con `refusing to allow a GitHub App to create or update workflow ... without workflows permission`, `git` esce 1 e la PR non nasce. Lo scope `workflows` **non è concedibile** al `GITHUB_TOKEN`: non compare fra i valori ammessi in `permissions:` | `security-updates.yml` mette da parte le modifiche alle workflow in una patch, consegna il resto e apre una issue (per questo la workflow ha `issues: write`: senza, il permesso mancante faceva morire con 403 proprio il passo che salva il lavoro); `self-heal.yml` salva la patch come artefatto della corsa e nomina la causa giusta. Con `SPD_PR_TOKEN` (permesso **Workflows**) il muro sparisce. Verificato in CI con un A/B: stessa action, stessi permessi, stesso branch di base — cambia solo *cosa* viene modificato: workflow → rifiutato, documentazione → PR creata |
+| il token della corsa **non può creare né aggiornare file in `.github/workflows/`** | il server respinge il push con `refusing to allow a GitHub App to create or update workflow ... without workflows permission`, `git` esce 1 e la PR non nasce. Lo scope `workflows` **non è concedibile** al `GITHUB_TOKEN`: non compare fra i valori ammessi in `permissions:` | `security-updates.yml` mette da parte le modifiche alle workflow in una patch, consegna il resto e apre una issue (per questo la workflow ha `issues: write`: senza, il permesso mancante faceva morire con 403 proprio il passo che salva il lavoro); `self-heal.yml` salva la patch come artefatto della corsa e nomina la causa giusta. Il muro resta: si consegna a mano con `git apply`. Verificato in CI con un A/B: stessa action, stessi permessi, stesso branch di base — cambia solo *cosa* viene modificato: workflow → rifiutato, documentazione → PR creata |
 
 La spunta **non** toglie un ultimo cancello: le corse innescate da
 `pull_request` su una PR aperta col token di corsa restano in `action_required`,
@@ -141,16 +144,22 @@ dispatcha `ci.yml` sul branch curato, e `workflow_dispatch` quel cancello non lo
 passa, quindi le correzioni vengono verificate comunque — ad aspettare e' solo
 il merge.
 
-Per togliere anche quel clic — e per poter consegnare **qualsiasi** modifica
-alle workflow — serve il segreto **`SPD_PR_TOKEN`**: PAT fine-grained su questa
-sola repo con `Contents`, `Pull requests` e **`Workflows`** in scrittura,
-scadenza breve. Senza quel terzo permesso gli aggiornamenti automatici dei pin e
-le correzioni del ciclo che toccano `.github/workflows/` restano bloccati sul
-push, qualunque sia la spunta nelle impostazioni della repo. Le workflow lo usano come
-`${{ secrets.SPD_PR_TOKEN || github.token }}`: con il PAT la PR nasce da
-un'identita' utente, i check partono da soli e il ciclo chiude senza mani.
-Senza, si ripiega sul token della corsa: la PR viene aperta, la CI riavviata a
-mano, il corpo della PR spiega cosa manca. Nessun passo fallisce per questo.
+Quel clic resta: si toglie solo con un'identita' diversa da `github-actions`,
+cioe' un PAT, che questa repo **non usa**. Il compromesso accettato e' questo:
+
+- le PR del ciclo vengono aperte col token di corsa, quindi i check innescati
+  dalla PR restano in `action_required` finche' qualcuno non preme **Approve
+  workflows to run**;
+- il ciclo non resta cieco: dispatcha `ci.yml` sul branch curato, e
+  `workflow_dispatch` quel cancello non lo passa, quindi actionlint, gate e
+  build+verifica APK girano comunque;
+- il merge lo fa una persona (automerge resta per le PR di Dependabot, che
+  nascono da un'identita' bot diversa);
+- gli aggiornamenti che toccano `.github/workflows/` non sono pushabili in
+  nessun modo: finiscono in una patch (artefatto + issue) e si applicano a mano.
+
+Nessun passo fallisce per questo: `continue-on-error` dove serve, `::warning::`
+e una issue con la patch dove il lavoro va conservato.
 
 I gate `wf-pr-token-default` (create-pull-request senza `token:` esplicito) e
 `wf-merge-no-redispatch` (merge senza riavvio) impediscono che le scorciatoie
@@ -201,12 +210,12 @@ vulnerability*) invece di una issue pubblica. Risposta attesa entro 7 giorni.
   Va bene per un progetto personale; per una distribuzione reale va sostituita
   con una chiave custodita fuori dal repository. La CI può usare i secrets
   `SPD_KS_B64` / `SPD_KS_PASS` se li configuri.
-- **Senza `SPD_PR_TOKEN` l'automazione non può modificare le workflow**: il
-  token della corsa viene respinto sul push (permesso `workflows` non
-  concedibile). Gli aggiornamenti notturni dei pin e le correzioni del ciclo che
-  toccano `.github/workflows/` finiscono in una patch allegata alla corsa e in
-  una issue, non in una PR. Tutto il resto — codice, risorse, dati, toolchain —
-  continua a passare dalle PR automatiche.
+- **L'automazione non può modificare le workflow**: il token della corsa viene
+  respinto sul push (permesso `workflows` non concedibile) e la repo non usa
+  nessun PAT, per scelta. Gli aggiornamenti notturni dei pin e le correzioni del
+  ciclo che toccano `.github/workflows/` finiscono in una patch allegata alla
+  corsa e in una issue, non in una PR. Tutto il resto — codice, risorse, dati,
+  toolchain — continua a passare dalle PR automatiche.
 - Code scanning / Dependabot alerts / secret scanning richiedono che le
   funzioni di sicurezza siano abilitate nelle impostazioni del repository
   (Settings → Code security). Le workflow caricano i risultati appena attive.
@@ -216,6 +225,7 @@ vulnerability*) invece di una issue pubblica. Risposta attesa entro 7 giorni.
   installato — i suoi esiti, che pero' restano non bloccanti perche' la
   versione cambia da un ambiente all'altro. Un giro in CI resta quindi
   l'ultima parola sulle workflow.
-- Senza il segreto `SPD_PR_TOKEN` il ciclo **non si chiude da solo**: apre la PR
-  e la fa verificare, ma i check innescati dalla PR restano in `action_required`
-  e il merge aspetta un'approvazione umana (vedi sopra).
+- Il ciclo **non si chiude da solo**: apre la PR e la fa verificare con un
+  dispatch della CI, ma i check innescati dalla PR restano in `action_required`
+  e il merge aspetta un'approvazione umana (vedi sopra). E' il prezzo di non
+  avere un PAT.
