@@ -340,10 +340,11 @@ def inj_backtick_in_sh(d):
 
 
 def inj_pr_token_default(d):
-    """Toglie il PAT: la PR del bot non innesca piu' nessun workflow."""
+    """Toglie il `token:` esplicito: la PR del bot non dichiara con che
+    identita' nasce e non innesca nessun workflow."""
     rel = ".github/workflows/security-updates.yml"
     text = read(d, rel)
-    needle = "          token: ${{ secrets.SPD_PR_TOKEN || github.token }}\n"
+    needle = "          token: ${{ github.token }}\n"
     if needle not in text:
         raise AssertionError("riga `token:` assente in %s" % rel)
     write(d, rel, text.replace(needle, "", 1))
